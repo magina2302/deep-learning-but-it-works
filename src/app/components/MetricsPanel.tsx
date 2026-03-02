@@ -12,6 +12,7 @@ interface StudyBlock {
   activity: string;
   minutes: number;
   description: string;
+  tag: "weak" | "developing" | "strong" | "break";
 }
 
 export function MetricsPanel({ module }: MetricsPanelProps) {
@@ -36,107 +37,84 @@ export function MetricsPanel({ module }: MetricsPanelProps) {
     return "Not started";
   };
 
+  const tagColor = (tag: string) => {
+    if (tag === "weak") return "#ef4444";
+    if (tag === "developing") return "#f59e0b";
+    if (tag === "break") return "#38bdf8";
+    return "#10b981";
+  };
+
+  const tagLabel = (tag: string) => {
+    if (tag === "weak") return "Needs work";
+    if (tag === "developing") return "Developing";
+    if (tag === "break") return "Break";
+    return "Strong";
+  };
+
   const generateStudyPlan = () => {
     const minutes = parseInt(timeAvailable);
     if (!minutes || minutes < 5) return;
 
-    let plan: StudyBlock[] = [];
+    const sensorProfile = [
+      {
+        name: "Ultrasonic Sensor",
+        tag: "weak" as const,
+        insight: "You've made 11 mistakes here — mostly on distance calculation formulas. This needs the most attention. We will review the core concepts and work through the tricky parts step by step.",
+        weight: 0.35,
+      },
+      {
+        name: "IR Sensor & Temperature Sensor",
+        tag: "developing" as const,
+        insight: "You have a solid grasp on both IR and Temperature sensors. Spend only about 10 minutes here to recap the key points and make sure nothing slips.",
+        weight: 0.20,
+      },
+      {
+          name: "Quiz — Complementary & Kalman Filters",
+          tag: "weak" as const,
+          insight: "We noticed you scored lower on filter concepts — your mastery for Kalman Filter is at 38% and you got 9 questions wrong in your last session on this. This quiz will target exactly those gaps. No notes allowed.",
+          weight: 0.25,
+      },
+      {
+        name: "Quiz Recap & Clarification",
+        tag: "developing" as const,
+        insight: "Go through your quiz answers and clarify anything you got wrong. Reinforce the correct understanding before your next session.",
+        weight: 0.20,
+      },
+    ];
 
-    if (minutes <= 15) {
-      plan = [
-        {
-          activity: "Quick Recap",
-          minutes: minutes,
-          description: `Re-read your notes on ${module.name} and highlight the 3 most important concepts`,
-        },
-      ];
-    } else if (minutes <= 30) {
-      plan = [
-        {
-          activity: "Concept Review",
-          minutes: Math.round(minutes * 0.5),
-          description: `Review the most recent concept you studied in ${module.name} — summarise it in your own words`,
-        },
-        {
-          activity: "Practice Problem",
-          minutes: Math.round(minutes * 0.5),
-          description: "Attempt 1 practice problem from your notes or textbook without looking at the solution first",
-        },
-      ];
-    } else if (minutes <= 60) {
-      plan = [
-        {
-          activity: "Concept Review",
-          minutes: Math.round(minutes * 0.3),
-          description: `Review 2 concepts from ${module.name} — write a one-line summary for each`,
-        },
-        {
-          activity: "Worked Examples",
-          minutes: Math.round(minutes * 0.4),
-          description: "Go through 2 worked examples step by step — make sure you understand each step before moving on",
-        },
-        {
-          activity: "Practice Problems",
-          minutes: Math.round(minutes * 0.3),
-          description: "Attempt 2 practice problems on your own without notes — check your answers after",
-        },
-      ];
-    } else if (minutes <= 90) {
-      plan = [
-        {
-          activity: "Concept Review",
-          minutes: Math.round(minutes * 0.2),
-          description: `Review 3 concepts from ${module.name} — write a one-line summary for each`,
-        },
-        {
-          activity: "Worked Examples",
-          minutes: Math.round(minutes * 0.3),
-          description: "Go through 3 worked examples step by step — focus on the ones you find hardest",
-        },
-        {
-          activity: "Practice Problems",
-          minutes: Math.round(minutes * 0.3),
-          description: "Attempt 3 practice problems on your own — time yourself and don't look at notes",
-        },
-        {
-          activity: "Self Quiz",
-          minutes: Math.round(minutes * 0.2),
-          description: `Close your notes and write down everything you remember about ${module.name} from scratch`,
-        },
-      ];
-    } else {
-      plan = [
-        {
-          activity: "Warm Up",
+    const totalWeight = sensorProfile.reduce((s, p) => s + p.weight, 0);
+
+    const rawPlan: StudyBlock[] = sensorProfile.map((sensor) => ({
+      activity: sensor.name,
+      minutes: Math.max(5, Math.round((sensor.weight / totalWeight) * minutes)),
+      description: sensor.insight,
+      tag: sensor.tag,
+    }));
+
+    const totalAllocated = rawPlan.reduce((s, b) => s + b.minutes, 0);
+    const diff = minutes - totalAllocated;
+    if (rawPlan.length > 0) rawPlan[0].minutes += diff;
+
+    // Insert 10 min break after every 2 blocks
+    const finalPlan: StudyBlock[] = [];
+    for (let i = 0; i < rawPlan.length; i++) {
+      finalPlan.push(rawPlan[i]);
+      if ((i + 1) % 2 === 0 && i !== rawPlan.length - 1) {
+        finalPlan.push({
+          activity: "Break",
           minutes: 10,
-          description: `Skim through your previous notes on ${module.name} to get back into the flow`,
-        },
-        {
-          activity: "Deep Concept Review",
-          minutes: Math.round((minutes - 10) * 0.25),
-          description: "Pick the 3 hardest concepts and re-read them carefully — take notes as you go",
-        },
-        {
-          activity: "Worked Examples",
-          minutes: Math.round((minutes - 10) * 0.3),
-          description: "Work through 4 examples step by step — explain each step out loud as if teaching someone",
-        },
-        {
-          activity: "Practice Problems",
-          minutes: Math.round((minutes - 10) * 0.3),
-          description: "Attempt 4 practice problems under exam conditions — no notes, timed",
-        },
-        {
-          activity: "Review & Summary",
-          minutes: Math.round((minutes - 10) * 0.15),
-          description: `Write a half-page summary of what you covered today in ${module.name} — this helps with long term retention`,
-        },
-      ];
+          description: "Step away from your screen, stretch, grab some water. Your brain needs this to consolidate what you just studied.",
+          tag: "break",
+        });
+      }
     }
 
-    setStudyPlan(plan);
+    setStudyPlan(finalPlan);
     setPlanGenerated(true);
   };
+
+  // Track study block number separately (excluding breaks)
+  let studyBlockCount = 0;
 
   return (
     <div className="h-full overflow-y-auto bg-[var(--card)] border-l border-[var(--border)]">
@@ -227,28 +205,43 @@ export function MetricsPanel({ module }: MetricsPanelProps) {
                 <p style={{ fontSize: "0.7rem", color: module.color }}>
                   Your {timeAvailable}-minute plan:
                 </p>
-                {studyPlan.map((block, i) => (
-                  <div
-                    key={i}
-                    className="rounded-xl px-3 py-2.5"
-                    style={{ backgroundColor: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.06)" }}
-                  >
-                    <div className="flex items-center justify-between mb-1">
-                      <span style={{ fontSize: "0.78rem", fontWeight: 500 }} className="text-foreground">
-                        {i + 1}. {block.activity}
-                      </span>
-                      <span
-                        className="px-2 py-0.5 rounded-full text-white shrink-0 ml-2"
-                        style={{ fontSize: "0.65rem", backgroundColor: module.color }}
-                      >
-                        {block.minutes} mins
-                      </span>
+                {studyPlan.map((block, i) => {
+                  if (block.tag !== "break") studyBlockCount++;
+                  const blockNum = studyBlockCount;
+                  return (
+                    <div
+                      key={i}
+                      className="rounded-xl px-3 py-2.5"
+                      style={{
+                        backgroundColor: block.tag === "break" ? "rgba(56,189,248,0.06)" : "rgba(255,255,255,0.04)",
+                        border: block.tag === "break" ? "1px solid rgba(56,189,248,0.2)" : "1px solid rgba(255,255,255,0.06)",
+                      }}
+                    >
+                      <div className="flex items-center justify-between mb-1">
+                        <span style={{ fontSize: "0.78rem", fontWeight: 500 }} className="text-foreground">
+                          {block.tag !== "break" ? `${blockNum}. ${block.activity}` : block.activity}
+                        </span>
+                        <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                          <span
+                            className="px-2 py-0.5 rounded-full"
+                            style={{ fontSize: "0.6rem", backgroundColor: `${tagColor(block.tag)}20`, color: tagColor(block.tag) }}
+                          >
+                            {tagLabel(block.tag)}
+                          </span>
+                          <span
+                            className="px-2 py-0.5 rounded-full text-white"
+                            style={{ fontSize: "0.65rem", backgroundColor: block.tag === "break" ? "#38bdf8" : module.color }}
+                          >
+                            {block.minutes} mins
+                          </span>
+                        </div>
+                      </div>
+                      <p className="text-muted-foreground" style={{ fontSize: "0.68rem", lineHeight: "1.5" }}>
+                        {block.description}
+                      </p>
                     </div>
-                    <p className="text-muted-foreground" style={{ fontSize: "0.68rem", lineHeight: "1.5" }}>
-                      {block.description}
-                    </p>
-                  </div>
-                ))}
+                  );
+                })}
                 <p className="text-muted-foreground text-center pt-1" style={{ fontSize: "0.65rem" }}>
                   Total: {studyPlan.reduce((s, b) => s + b.minutes, 0)} mins
                 </p>
