@@ -1,16 +1,27 @@
+import React, { useState } from "react";
 import { Module, getDaysInactive, getInactivityLabel, getWeakSpots } from "../data/mock-data";
 import {
-  Clock, Target, AlertTriangle, CheckCircle2, Circle, BookOpen, Lightbulb,
+  Clock, Target, AlertTriangle, CheckCircle2, Circle, BookOpen, Lightbulb, ClipboardList,
 } from "lucide-react";
 
 interface MetricsPanelProps {
   module: Module;
 }
 
+interface StudyBlock {
+  subtopic: string;
+  minutes: number;
+  reason: string;
+  mastery: number;
+}
+
 export function MetricsPanel({ module }: MetricsPanelProps) {
   const daysInactive = getDaysInactive(module.lastStudied);
   const weakSpots = getWeakSpots(module.subtopics);
   const completedCount = module.subtopics.filter((s) => s.completed).length;
+  const [timeAvailable, setTimeAvailable] = useState("");
+  const [studyPlan, setStudyPlan] = useState<StudyBlock[]>([]);
+  const [planGenerated, setPlanGenerated] = useState(false);
 
   const getMasteryColor = (mastery: number) => {
     if (mastery >= 80) return "#10b981";
@@ -26,9 +37,75 @@ export function MetricsPanel({ module }: MetricsPanelProps) {
     return "Not started";
   };
 
+  const generateStudyPlan = () => {
+    const minutes = parseInt(timeAvailable);
+    if (!minutes || minutes < 5) return;
+
+    // Priority 1 — weak spots (high mistakes, low mastery)
+    // Priority 2 — in progress (mastery > 0 but not completed)
+    // Priority 3 — not started yet
+    const weakSubtopics = module.subtopics
+      .filter((s) => s.mistakeCount >= 3 && s.mastery < 60 && !s.completed)
+      .sort((a, b) => a.mastery - b.mastery);
+
+    const inProgress = module.subtopics
+      .filter((s) => s.mastery > 0 && s.mastery < 80 && !s.completed && !weakSubtopics.find(w => w.id === s.id))
+      .sort((a, b) => a.mastery - b.mastery);
+
+    const notStarted = module.subtopics
+      .filter((s) => s.mastery === 0 && !s.completed)
+
+    const prioritized = [...weakSubtopics, ...inProgress, ...notStarted];
+
+    if (prioritized.length === 0) {
+      setStudyPlan([]);
+      setPlanGenerated(true);
+      return;
+    }
+
+    // Distribute time across prioritized subtopics
+    // Weak spots get more time, not started get less
+    let remainingMinutes = minutes;
+    const plan: StudyBlock[] = [];
+
+    for (const sub of prioritized) {
+      if (remainingMinutes <= 0) break;
+
+      let allocated = 0;
+      let reason = "";
+
+      if (weakSubtopics.find((w) => w.id === sub.id)) {
+        allocated = Math.min(Math.ceil(minutes * 0.4), remainingMinutes, 20);
+        reason = `Weak spot — ${sub.mistakeCount} mistakes recorded`;
+      } else if (inProgress.find((w) => w.id === sub.id)) {
+        allocated = Math.min(Math.ceil(minutes * 0.3), remainingMinutes, 15);
+        reason = `In progress — ${sub.mastery}% mastered`;
+      } else {
+        allocated = Math.min(Math.ceil(minutes * 0.2), remainingMinutes, 10);
+        reason = "Not started yet — begin here";
+      }
+
+      allocated = Math.max(allocated, 5);
+      if (allocated > remainingMinutes) allocated = remainingMinutes;
+
+      plan.push({
+        subtopic: sub.name,
+        minutes: allocated,
+        reason,
+        mastery: sub.mastery,
+      });
+
+      remainingMinutes -= allocated;
+    }
+
+    setStudyPlan(plan);
+    setPlanGenerated(true);
+  };
+
   return (
     <div className="h-full overflow-y-auto bg-[var(--card)] border-l border-[var(--border)]">
       <div className="p-5 space-y-5">
+
         {/* Today's Focus */}
         <div
           className="rounded-2xl p-4 relative overflow-hidden"
@@ -70,6 +147,88 @@ export function MetricsPanel({ module }: MetricsPanelProps) {
                 background: `linear-gradient(90deg, ${module.color}, ${module.color}bb)`,
               }}
             />
+          </div>
+        </div>
+
+        {/* Study Plan Generator */}
+        <div>
+          <div className="flex items-center gap-2 mb-3">
+            <ClipboardList className="w-4 h-4" style={{ color: module.color }} />
+            <h4>Study Plan</h4>
+          </div>
+          <div
+            className="rounded-xl p-4 space-y-3"
+            style={{
+              background: `linear-gradient(135deg, ${module.bgColor}, rgba(97,41,204,0.05))`,
+              border: `1px solid ${module.borderColor}`,
+            }}
+          >
+            <p className="text-muted-foreground" style={{ fontSize: "0.75rem" }}>
+              How many minutes do you have to study?
+            </p>
+            <div className="flex gap-2">
+              <input
+                type="number"
+                value={timeAvailable}
+                onChange={(e) => { setTimeAvailable(e.target.value); setPlanGenerated(false); }}
+                placeholder="e.g. 30"
+                min="5"
+                className="flex-1 bg-[var(--input-background)] rounded-xl px-3 py-2 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                style={{ fontSize: "0.85rem" }}
+              />
+              <button
+                onClick={generateStudyPlan}
+                disabled={!timeAvailable || parseInt(timeAvailable) < 5}
+                className="px-4 py-2 rounded-xl text-white transition-all disabled:opacity-40 cursor-pointer"
+                style={{ background: `linear-gradient(135deg, ${module.color}, #B352D7)`, fontSize: "0.8rem" }}
+              >
+                Generate
+              </button>
+            </div>
+
+            {planGenerated && studyPlan.length === 0 && (
+              <p className="text-muted-foreground text-center" style={{ fontSize: "0.75rem" }}>
+                Great job! No weak areas to focus on right now.
+              </p>
+            )}
+
+            {planGenerated && studyPlan.length > 0 && (
+              <div className="space-y-2 mt-1">
+                <p style={{ fontSize: "0.7rem", color: module.color }}>
+                  Your {timeAvailable}-minute plan:
+                </p>
+                {studyPlan.map((block, i) => (
+                  <div
+                    key={i}
+                    className="rounded-xl px-3 py-2.5"
+                    style={{ backgroundColor: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.06)" }}
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <span style={{ fontSize: "0.78rem" }} className="text-foreground">{block.subtopic}</span>
+                      <span
+                        className="px-2 py-0.5 rounded-full text-white"
+                        style={{ fontSize: "0.65rem", backgroundColor: module.color }}
+                      >
+                        {block.minutes} mins
+                      </span>
+                    </div>
+                    <p className="text-muted-foreground" style={{ fontSize: "0.65rem" }}>{block.reason}</p>
+                    <div className="flex items-center gap-2 mt-1.5">
+                      <div className="flex-1 h-1 bg-[var(--muted)] rounded-full overflow-hidden">
+                        <div
+                          className="h-full rounded-full"
+                          style={{ width: `${block.mastery}%`, backgroundColor: getMasteryColor(block.mastery) }}
+                        />
+                      </div>
+                      <span className="text-muted-foreground" style={{ fontSize: "0.6rem" }}>{block.mastery}%</span>
+                    </div>
+                  </div>
+                ))}
+                <p className="text-muted-foreground text-center pt-1" style={{ fontSize: "0.65rem" }}>
+                  Total: {studyPlan.reduce((s, b) => s + b.minutes, 0)} mins planned
+                </p>
+              </div>
+            )}
           </div>
         </div>
 
@@ -192,6 +351,7 @@ export function MetricsPanel({ module }: MetricsPanelProps) {
             </div>
           </div>
         )}
+
       </div>
     </div>
   );
