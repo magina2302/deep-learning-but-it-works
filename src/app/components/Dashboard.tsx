@@ -1,8 +1,9 @@
 import { useNavigate } from "react-router";
-import { getDaysInactive, getInactivityLabel, getWeakSpots, Module } from "../data/mock-data";
+import { getInactivityLabel, Module } from "../data/mock-data";
+import { getDaysInactive, getWeakSpots } from "../data/metrics";
 import {
   BookOpen, TrendingUp, ChevronRight, GraduationCap, Clock,
-  AlertTriangle, Brain, Target, BarChart3, Plus, Trash2, LogOut,
+  AlertTriangle, Brain, Target, BarChart3, Plus, Trash2, LogOut, Flame,
 } from "lucide-react";
 import { ThemeSwitcher } from "./ThemeSwitcher";
 import { AddModuleModal } from "./AddModuleModal";
@@ -29,6 +30,7 @@ export function Dashboard() {
     : 0;
   const totalCompleted = modules.reduce((sum, m) => sum + m.subtopics.filter((s) => s.completed).length, 0);
   const totalSubtopics = modules.reduce((sum, m) => sum + m.subtopics.length, 0);
+  const totalStreak = modules.reduce((sum, m) => sum + m.streak, 0);
 
   const statusConfig: Record<string, { dot: string }> = {
     "on-track": { dot: "#10b981" },
@@ -78,11 +80,12 @@ export function Dashboard() {
           </div>
 
           {/* Quick stats */}
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             {[
               { icon: TrendingUp, label: "Overall Mastery", value: `${totalMastery}%`, color: "#FF7541" },
               { icon: BookOpen, label: "Concepts Done", value: `${totalCompleted}/${totalSubtopics}`, color: "#B352D7" },
               { icon: Brain, label: "Active Modules", value: `${modules.length}`, color: "#6129CC" },
+              { icon: Flame, label: "Combined Streak", value: `${totalStreak} day${totalStreak === 1 ? "" : "s"}`, color: "#f59e0b" },
             ].map((stat) => (
               <div key={stat.label} className="bg-[var(--card)] border border-[var(--border)] rounded-2xl p-4 backdrop-blur-sm">
                 <div className="flex items-center gap-2 mb-2">
@@ -149,7 +152,7 @@ export function Dashboard() {
                   const daysInactive = getDaysInactive(mod.lastStudied);
                   const completedCount = mod.subtopics.filter((s) => s.completed).length;
                   const weakSpots = getWeakSpots(mod.subtopics);
-                  const sc = statusConfig[mod.status];
+                  const sc = statusConfig[mod.status] || statusConfig["on-track"];
 
                   return (
                     <div
@@ -240,6 +243,10 @@ export function Dashboard() {
                         <span className="flex items-center gap-1 text-muted-foreground" style={{ fontSize: "0.7rem" }}>
                           <Clock className="w-3 h-3" />
                           {getInactivityLabel(daysInactive)}
+                        </span>
+                        <span className="flex items-center gap-1 text-muted-foreground" style={{ fontSize: "0.7rem" }}>
+                          <Flame className="w-3 h-3" />
+                          Streak {mod.streak}
                         </span>
                       </div>
 

@@ -2,20 +2,23 @@ import React from "react";
 import { createContext, useContext, useState, useEffect, ReactNode } from "react";
 import { supabase } from "../../supabase";
 import { useAuth } from "./AuthContext";
-import { Module, createNewModule } from "../data/mock-data";
+import { Module, Subtopic, createNewModule } from "../data/mock-data";
+import { computeNextStreak, computeOverallMastery, computeStatus, getWeakSpots } from "../data/metrics";
 
 interface ModulesContextType {
   modules: Module[];
   loading: boolean;
-  addModule: (name: string, subtitle: string, tags: string[]) => void;
-  deleteModule: (id: string) => void;
+  addModule: (name: string, subtitle: string, tags: string[]) => Promise<void>;
+  deleteModule: (id: string) => Promise<void>;
+  recordStudySession: (id: string) => Promise<void>;
 }
 
 const ModulesContext = createContext<ModulesContextType>({
   modules: [],
   loading: true,
-  addModule: () => {},
-  deleteModule: () => {},
+  addModule: async () => {},
+  deleteModule: async () => {},
+  recordStudySession: async () => {},
 });
 
 export function useModules() {
@@ -39,7 +42,7 @@ export function ModulesProvider({ children }: { children: ReactNode }) {
 
     const fetchModules = async () => {
       setLoading(true);
-      const { data, error } = await supabase
+      const { data: topicsData, error } = await supabase
         .from("topics")
         .select("*")
         .eq("student_id", user.id)
@@ -127,8 +130,52 @@ export function ModulesProvider({ children }: { children: ReactNode }) {
     setModules((prev) => prev.filter((m) => m.id !== id));
   };
 
+  const recordStudySession = async (id: string) => {
+    if (!user) return;
+
+    const currentModule = modules.find((m) => m.id === id);
+    if (!currentModule) return;
+
+    const now = new Date();
+    const streak = computeNextStreak(currentModule.lastStudied, currentModule.streak, now);
+    const overallMastery = computeOverallMastery(currentModule.subtopics, currentModule.overallMastery);
+    const { status, statusLabel } = computeStatus(now, overallMastery, getWeakSpots(currentModule.subtopics));
+
+    const { error } = await supabase
+      .from("topics")
+      .update({
+        last_studied_at: now.toISOString(),
+        streak,
+        overall_mastery: overallMastery,
+        status,
+        status_label: statusLabel,
+      })
+      .eq("id", id)
+      .eq("student_id", user.id);
+
+    if (error) {
+      console.log("Error updating study session:", error.message);
+      return;
+    }
+
+    setModules((prev) =>
+      prev.map((mod) =>
+        mod.id === id
+          ? {
+              ...mod,
+              lastStudied: now,
+              streak,
+              overallMastery,
+              status,
+              statusLabel,
+            }
+          : mod,
+      ),
+    );
+  };
+
   return (
-    <ModulesContext.Provider value={{ modules, loading, addModule, deleteModule }}>
+    <ModulesContext.Provider value={{ modules, loading, addModule, deleteModule, recordStudySession }}>
       {children}
     </ModulesContext.Provider>
   );

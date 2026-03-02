@@ -3,6 +3,7 @@ import { Module, ChatMessage, ChatAttachment, getDaysInactive, getWeakSpots } fr
 import type { NextActionDecision } from "../data/next-action";
 import { Send, Bot, User, Sparkles, Paperclip, FileText, X } from "lucide-react";
 import { FileUploadModal } from "./FileUploadModal";
+import { useModules } from "./ModulesContext";
 
 const MarkdownMessage = lazy(() => import("./MarkdownMessage"));
 
@@ -109,6 +110,7 @@ function getDecisionOpening(module: Module, decision: NextActionDecision): strin
 }
 
 export function ChatPanel({ module }: ChatPanelProps) {
+  const { recordStudySession } = useModules();
   const [messages, setMessages] = useState<ChatMessage[]>(module.chatHistory);
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
@@ -250,6 +252,7 @@ export function ChatPanel({ module }: ChatPanelProps) {
     setInput("");
     setPendingAttachments([]);
     setIsTyping(true);
+    void recordStudySession(module.id);
 
     try {
       const history = messages
