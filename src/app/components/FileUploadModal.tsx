@@ -17,6 +17,119 @@ interface PendingFile {
   category: FileCategory;
 }
 
+const MAX_FILE_CHARS = 8000;
+const PDF_MAX_PAGES = 25;
+const textMimePrefixes = ["text/"];
+const textMimes = new Set([
+  "application/json",
+  "application/javascript",
+  "application/typescript",
+  "application/xml",
+  "application/x-sh",
+]);
+const textExtensions = new Set([
+  "txt",
+  "md",
+  "markdown",
+  "csv",
+  "tsv",
+  "json",
+  "xml",
+  "yaml",
+  "yml",
+  "js",
+  "jsx",
+  "ts",
+  "tsx",
+  "py",
+  "java",
+  "c",
+  "cpp",
+  "h",
+  "hpp",
+  "cs",
+  "sql",
+  "html",
+  "css",
+  "scss",
+  "sh",
+  "r",
+  "m",
+  "tex",
+]);
+
+function getExtension(filename: string): string {
+  const idx = filename.lastIndexOf(".");
+  return idx >= 0 ? filename.slice(idx + 1).toLowerCase() : "";
+}
+
+let pdfJsLoaderPromise: Promise<typeof import("pdfjs-dist")> | null = null;
+
+async function loadPdfJs() {
+  if (!pdfJsLoaderPromise) {
+    pdfJsLoaderPromise = import("pdfjs-dist").then((pdfJs) => {
+      if (!pdfJs.GlobalWorkerOptions.workerSrc) {
+        pdfJs.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).toString();
+      }
+      return pdfJs;
+    });
+  }
+  return pdfJsLoaderPromise;
+}
+
+async function extractPdfText(file: File): Promise<string | undefined> {
+  try {
+    const pdfJs = await loadPdfJs();
+    const buffer = await file.arrayBuffer();
+    const loadingTask = pdfJs.getDocument({ data: buffer });
+    const pdf = await loadingTask.promise;
+    const pageCount = Math.min(pdf.numPages, PDF_MAX_PAGES);
+
+    const pages: string[] = [];
+    for (let index = 1; index <= pageCount; index++) {
+      const page = await pdf.getPage(index);
+      const textContent = await page.getTextContent();
+      const pageText = textContent.items
+        .map((item: any) => (typeof item?.str === "string" ? item.str : ""))
+        .join(" ")
+        .replace(/\s+/g, " ")
+        .trim();
+
+      if (pageText) {
+        pages.push(pageText);
+      }
+    }
+
+    await loadingTask.destroy();
+
+    if (pages.length === 0) return undefined;
+    const joined = pages.join("\n\n");
+    if (joined.length <= MAX_FILE_CHARS) return joined;
+    return `${joined.slice(0, MAX_FILE_CHARS)}\n\n[truncated: PDF text too long]`;
+  } catch {
+    return undefined;
+  }
+}
+
+function isTextLikeFile(file: File): boolean {
+  if (textMimePrefixes.some((prefix) => file.type.startsWith(prefix))) return true;
+  if (textMimes.has(file.type)) return true;
+  return textExtensions.has(getExtension(file.name));
+}
+
+async function readAttachmentContent(file: File): Promise<string | undefined> {
+  const ext = getExtension(file.name);
+  if (file.type === "application/pdf" || ext === "pdf") {
+    return extractPdfText(file);
+  }
+
+  if (!isTextLikeFile(file)) return undefined;
+  const raw = await file.text();
+  if (!raw.trim()) return undefined;
+  if (raw.length <= MAX_FILE_CHARS) return raw;
+  return `${raw.slice(0, MAX_FILE_CHARS)}\n\n[truncated: file too long]`;
+}
+
 const categories: { id: FileCategory; label: string; icon: typeof BookOpen; description: string }[] = [
   { id: "Lecture", label: "Lecture", icon: BookOpen, description: "Lecture slides & notes" },
   { id: "PYP", label: "PYP", icon: FileText, description: "Past year papers" },
@@ -52,13 +165,17 @@ export function FileUploadModal({ open, onClose, onUpload }: FileUploadModalProp
     setPendingFiles((prev) => prev.filter((f) => f.id !== id));
   };
 
-  const handleUpload = () => {
-    const attachments: ChatAttachment[] = pendingFiles.map((pf) => ({
-      id: pf.id,
-      name: pf.file.name,
-      size: formatFileSize(pf.file.size),
-      category: pf.category,
-    }));
+  const handleUpload = async () => {
+    const attachments: ChatAttachment[] = await Promise.all(
+      pendingFiles.map(async (pf) => ({
+        id: pf.id,
+        name: pf.file.name,
+        size: formatFileSize(pf.file.size),
+        category: pf.category,
+        mimeType: pf.file.type || undefined,
+        content: await readAttachmentContent(pf.file),
+      })),
+    );
     onUpload(attachments);
     setPendingFiles([]);
     onClose();

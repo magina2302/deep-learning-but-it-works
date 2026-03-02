@@ -19,6 +19,8 @@ export interface ChatAttachment {
   name: string;
   size: string;
   category: "Lecture" | "PYP" | "Tutorial" | "Labs";
+  mimeType?: string;
+  content?: string;
 }
 
 export interface ChatMessage {

@@ -1,10 +1,42 @@
-import { useState, useRef, useEffect } from "react";
-import { Module, ChatMessage, ChatAttachment, generateAIResponse } from "../data/mock-data";
+import { useState, useRef, useEffect, lazy, Suspense } from "react";
+import { Module, ChatMessage, ChatAttachment, getDaysInactive, getWeakSpots } from "../data/mock-data";
+import type { NextActionDecision } from "../data/next-action";
 import { Send, Bot, User, Sparkles, Paperclip, FileText, X } from "lucide-react";
 import { FileUploadModal } from "./FileUploadModal";
 
+const MarkdownMessage = lazy(() => import("./MarkdownMessage"));
+
 interface ChatPanelProps {
   module: Module;
+}
+
+type ChatApiResponse = {
+  reply?: string;
+  error?: string;
+};
+
+function getDecisionOpening(module: Module, decision: NextActionDecision): string {
+  const currentSubtopic = module.subtopics.find((s) => !s.completed) || module.subtopics[0];
+  const focusName = currentSubtopic?.name ?? module.name;
+
+  switch (decision.action) {
+    case "restart":
+      return `You've been away for a while, so we'll restart from the fundamentals of ${focusName} before moving ahead.`;
+    case "full_recap":
+      return `Before continuing, let's do a full recap of ${focusName} with a quick comprehension check.`;
+    case "quick_recap":
+      return `Welcome back — let's begin with a quick recap quiz on ${focusName}.`;
+    case "plateau_mode":
+      return `I can see this concept has been difficult, so I'm switching to a different explanation style for ${focusName}.`;
+    case "loop_back_weak_spot":
+      return `Before new content, we'll loop back to your weak spot and strengthen it with a targeted exercise.`;
+    case "harder_problems":
+      return `You're showing high mastery, so I'll move faster and give you a harder integrated problem on ${focusName}.`;
+    case "more_practice":
+      return `We'll slow down and add more guided practice on ${focusName} to build confidence.`;
+    default:
+      return `You're on track — let's continue with ${focusName}.`;
+  }
 }
 
 export function ChatPanel({ module }: ChatPanelProps) {
@@ -16,31 +48,132 @@ export function ChatPanel({ module }: ChatPanelProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    setMessages(module.chatHistory);
+  }, [module.id]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadNextAction = async () => {
+      const daysInactive = getDaysInactive(new Date(module.lastStudied));
+      const weakSpot = getWeakSpots(module.subtopics)[0];
+      const currentSubtopic = module.subtopics.find((s) => !s.completed) || module.subtopics[module.subtopics.length - 1];
+
+      const query = new URLSearchParams({
+        daysInactive: String(daysInactive),
+        overallMastery: String(module.overallMastery),
+        failedAttempts: String(currentSubtopic?.attempts ?? 0),
+      });
+
+      if (weakSpot) {
+        query.set("weakSpotSubtopicId", weakSpot.id);
+        query.set("weakSpotMastery", String(weakSpot.mastery));
+        query.set("weakSpotMistakeCount", String(weakSpot.mistakeCount));
+      }
+
+      try {
+        const response = await fetch(`/topic/${encodeURIComponent(module.id)}/next?${query.toString()}`);
+        if (!response.ok) return;
+
+        const payload = (await response.json()) as { decision?: NextActionDecision };
+        if (!payload.decision || cancelled) return;
+
+        const opener: ChatMessage = {
+          id: `decision-${module.id}-${Date.now()}`,
+          role: "ai",
+          content: getDecisionOpening(module, payload.decision),
+          timestamp: new Date(),
+        };
+
+        setMessages((prev) => [...prev, opener]);
+      } catch {
+      }
+    };
+
+    loadNextAction();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [module.id]);
+
+  useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [messages, isTyping]);
 
-  const handleSend = () => {
+  const handleSend = async () => {
     if (!input.trim() && pendingAttachments.length === 0) return;
+
+    const weakSpot = getWeakSpots(module.subtopics)[0];
+    const currentSubtopic = module.subtopics.find((s) => !s.completed) || module.subtopics[module.subtopics.length - 1];
+    const daysInactive = getDaysInactive(new Date(module.lastStudied));
+    const attachmentsToSend = [...pendingAttachments];
+
     const userMsg: ChatMessage = {
       id: `msg-${Date.now()}`,
       role: "student",
-      content: input.trim() || (pendingAttachments.length > 0 ? `Uploaded ${pendingAttachments.length} file(s)` : ""),
+      content: input.trim() || (attachmentsToSend.length > 0 ? `Uploaded ${attachmentsToSend.length} file(s)` : ""),
       timestamp: new Date(),
-      attachments: pendingAttachments.length > 0 ? [...pendingAttachments] : undefined,
+      attachments: attachmentsToSend.length > 0 ? attachmentsToSend : undefined,
     };
     setMessages((prev) => [...prev, userMsg]);
     setInput("");
     setPendingAttachments([]);
     setIsTyping(true);
 
-    setTimeout(() => {
-      let aiContent = generateAIResponse(module, userMsg.content);
+    try {
+      const history = messages
+        .filter((m) => m.role === "student" || m.role === "ai")
+        .slice(-10)
+        .map((m) => ({
+          role: m.role === "student" ? "user" : "assistant",
+          content: m.content,
+        }));
+
+      const response = await fetch("/api/chat", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          topicId: module.id,
+          topicName: module.name,
+          overallMastery: module.overallMastery,
+          daysInactive,
+          failedAttempts: currentSubtopic?.attempts ?? 0,
+          weakSpotSubtopicId: weakSpot?.id,
+          weakSpotMastery: weakSpot?.mastery,
+          weakSpotMistakeCount: weakSpot?.mistakeCount,
+          weakSpotName: weakSpot?.name,
+          currentSubtopicName: currentSubtopic?.name,
+          history,
+          userMessage: userMsg.content,
+          uploadedFiles: attachmentsToSend.map((attachment) => ({
+            name: attachment.name,
+            size: attachment.size,
+            category: attachment.category,
+            mimeType: attachment.mimeType,
+            content: attachment.content,
+          })),
+        }),
+      });
+
+      const payload = (await response.json()) as ChatApiResponse;
+
+      let aiContent = payload.reply;
+      if (!response.ok || !aiContent) {
+        aiContent = payload.error
+          ? `I couldn't reach the AI service: ${payload.error}`
+          : "I couldn't reach the AI service right now. Please try again in a moment.";
+      }
+
       if (userMsg.attachments && userMsg.attachments.length > 0) {
         const cats = [...new Set(userMsg.attachments.map((a) => a.category))].join(", ");
-        aiContent = `Thanks for uploading those ${cats} materials! I'll use these to tailor our session. ${aiContent}`;
+        aiContent = `I received your ${cats} materials. ${aiContent}`;
       }
+
       const aiMsg: ChatMessage = {
         id: `msg-${Date.now() + 1}`,
         role: "ai",
@@ -48,8 +181,17 @@ export function ChatPanel({ module }: ChatPanelProps) {
         timestamp: new Date(),
       };
       setMessages((prev) => [...prev, aiMsg]);
+    } catch {
+      const aiMsg: ChatMessage = {
+        id: `msg-${Date.now() + 1}`,
+        role: "ai",
+        content: "I couldn't reach the AI service right now. Please try again in a moment.",
+        timestamp: new Date(),
+      };
+      setMessages((prev) => [...prev, aiMsg]);
+    } finally {
       setIsTyping(false);
-    }, 1200 + Math.random() * 800);
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -126,7 +268,13 @@ export function ChatPanel({ module }: ChatPanelProps) {
                     : {}
                 }
               >
-                <p style={{ fontSize: "0.875rem", lineHeight: "1.6", textAlign: "left" }}>{msg.content}</p>
+                {msg.role === "ai" ? (
+                  <Suspense fallback={<p style={{ fontSize: "0.875rem", lineHeight: "1.6", textAlign: "left" }}>{msg.content}</p>}>
+                    <MarkdownMessage content={msg.content} />
+                  </Suspense>
+                ) : (
+                  <p style={{ fontSize: "0.875rem", lineHeight: "1.6", textAlign: "left" }}>{msg.content}</p>
+                )}
               </div>
               {/* Attachments */}
               {msg.attachments && msg.attachments.length > 0 && (
