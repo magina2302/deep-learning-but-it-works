@@ -39,6 +39,7 @@ export interface Module {
   tags: string[];
   subtitle: string;
   lastStudied: Date;
+  streak: number;
   overallMastery: number;
   status: "on-track" | "needs-review" | "inactive";
   statusLabel: string;
@@ -98,6 +99,7 @@ export function createNewModule(name: string, subtitle: string, tags: string[], 
     tags,
     subtitle,
     lastStudied: new Date(),
+    streak: 0,
     overallMastery: 0,
     status: "on-track",
     statusLabel: "Just started",

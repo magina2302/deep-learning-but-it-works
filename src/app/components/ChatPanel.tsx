@@ -2,12 +2,14 @@ import { useState, useRef, useEffect } from "react";
 import { Module, ChatMessage, ChatAttachment, generateAIResponse } from "../data/mock-data";
 import { Send, Bot, User, Sparkles, Paperclip, FileText, X } from "lucide-react";
 import { FileUploadModal } from "./FileUploadModal";
+import { useModules } from "./ModulesContext";
 
 interface ChatPanelProps {
   module: Module;
 }
 
 export function ChatPanel({ module }: ChatPanelProps) {
+  const { recordStudySession } = useModules();
   const [messages, setMessages] = useState<ChatMessage[]>(module.chatHistory);
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
@@ -34,6 +36,7 @@ export function ChatPanel({ module }: ChatPanelProps) {
     setInput("");
     setPendingAttachments([]);
     setIsTyping(true);
+    void recordStudySession(module.id);
 
     setTimeout(() => {
       let aiContent = generateAIResponse(module, userMsg.content);

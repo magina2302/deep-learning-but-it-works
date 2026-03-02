@@ -1,6 +1,7 @@
-import { Module, getDaysInactive, getInactivityLabel, getWeakSpots } from "../data/mock-data";
+import { Module, getInactivityLabel } from "../data/mock-data";
+import { getDaysInactive, getWeakSpots } from "../data/metrics";
 import {
-  Clock, Target, AlertTriangle, CheckCircle2, Circle, BookOpen, Lightbulb,
+  Clock, Target, AlertTriangle, CheckCircle2, Circle, BookOpen, Lightbulb, Flame,
 } from "lucide-react";
 
 interface MetricsPanelProps {
@@ -45,7 +46,7 @@ export function MetricsPanel({ module }: MetricsPanelProps) {
         </div>
 
         {/* Quick Stats */}
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-3 gap-2">
           <div className="bg-[var(--accent)] rounded-xl p-3 text-center">
             <Clock className="w-3.5 h-3.5 mx-auto mb-1 text-muted-foreground" />
             <p style={{ fontSize: "0.7rem" }} className="text-foreground">{getInactivityLabel(daysInactive)}</p>
@@ -53,6 +54,10 @@ export function MetricsPanel({ module }: MetricsPanelProps) {
           <div className="bg-[var(--accent)] rounded-xl p-3 text-center">
             <BookOpen className="w-3.5 h-3.5 mx-auto mb-1 text-muted-foreground" />
             <p style={{ fontSize: "0.7rem" }} className="text-foreground">{completedCount}/{module.subtopics.length} concepts</p>
+          </div>
+          <div className="bg-[var(--accent)] rounded-xl p-3 text-center">
+            <Flame className="w-3.5 h-3.5 mx-auto mb-1 text-muted-foreground" />
+            <p style={{ fontSize: "0.7rem" }} className="text-foreground">Streak {module.streak}</p>
           </div>
         </div>
 
