@@ -9,10 +9,9 @@ interface MetricsPanelProps {
 }
 
 interface StudyBlock {
-  subtopic: string;
+  activity: string;
   minutes: number;
-  reason: string;
-  mastery: number;
+  description: string;
 }
 
 export function MetricsPanel({ module }: MetricsPanelProps) {
@@ -41,61 +40,98 @@ export function MetricsPanel({ module }: MetricsPanelProps) {
     const minutes = parseInt(timeAvailable);
     if (!minutes || minutes < 5) return;
 
-    // Priority 1 — weak spots (high mistakes, low mastery)
-    // Priority 2 — in progress (mastery > 0 but not completed)
-    // Priority 3 — not started yet
-    const weakSubtopics = module.subtopics
-      .filter((s) => s.mistakeCount >= 3 && s.mastery < 60 && !s.completed)
-      .sort((a, b) => a.mastery - b.mastery);
+    let plan: StudyBlock[] = [];
 
-    const inProgress = module.subtopics
-      .filter((s) => s.mastery > 0 && s.mastery < 80 && !s.completed && !weakSubtopics.find(w => w.id === s.id))
-      .sort((a, b) => a.mastery - b.mastery);
-
-    const notStarted = module.subtopics
-      .filter((s) => s.mastery === 0 && !s.completed)
-
-    const prioritized = [...weakSubtopics, ...inProgress, ...notStarted];
-
-    if (prioritized.length === 0) {
-      setStudyPlan([]);
-      setPlanGenerated(true);
-      return;
-    }
-
-    // Distribute time across prioritized subtopics
-    // Weak spots get more time, not started get less
-    let remainingMinutes = minutes;
-    const plan: StudyBlock[] = [];
-
-    for (const sub of prioritized) {
-      if (remainingMinutes <= 0) break;
-
-      let allocated = 0;
-      let reason = "";
-
-      if (weakSubtopics.find((w) => w.id === sub.id)) {
-        allocated = Math.min(Math.ceil(minutes * 0.4), remainingMinutes, 20);
-        reason = `Weak spot — ${sub.mistakeCount} mistakes recorded`;
-      } else if (inProgress.find((w) => w.id === sub.id)) {
-        allocated = Math.min(Math.ceil(minutes * 0.3), remainingMinutes, 15);
-        reason = `In progress — ${sub.mastery}% mastered`;
-      } else {
-        allocated = Math.min(Math.ceil(minutes * 0.2), remainingMinutes, 10);
-        reason = "Not started yet — begin here";
-      }
-
-      allocated = Math.max(allocated, 5);
-      if (allocated > remainingMinutes) allocated = remainingMinutes;
-
-      plan.push({
-        subtopic: sub.name,
-        minutes: allocated,
-        reason,
-        mastery: sub.mastery,
-      });
-
-      remainingMinutes -= allocated;
+    if (minutes <= 15) {
+      plan = [
+        {
+          activity: "Quick Recap",
+          minutes: minutes,
+          description: `Re-read your notes on ${module.name} and highlight the 3 most important concepts`,
+        },
+      ];
+    } else if (minutes <= 30) {
+      plan = [
+        {
+          activity: "Concept Review",
+          minutes: Math.round(minutes * 0.5),
+          description: `Review the most recent concept you studied in ${module.name} — summarise it in your own words`,
+        },
+        {
+          activity: "Practice Problem",
+          minutes: Math.round(minutes * 0.5),
+          description: "Attempt 1 practice problem from your notes or textbook without looking at the solution first",
+        },
+      ];
+    } else if (minutes <= 60) {
+      plan = [
+        {
+          activity: "Concept Review",
+          minutes: Math.round(minutes * 0.3),
+          description: `Review 2 concepts from ${module.name} — write a one-line summary for each`,
+        },
+        {
+          activity: "Worked Examples",
+          minutes: Math.round(minutes * 0.4),
+          description: "Go through 2 worked examples step by step — make sure you understand each step before moving on",
+        },
+        {
+          activity: "Practice Problems",
+          minutes: Math.round(minutes * 0.3),
+          description: "Attempt 2 practice problems on your own without notes — check your answers after",
+        },
+      ];
+    } else if (minutes <= 90) {
+      plan = [
+        {
+          activity: "Concept Review",
+          minutes: Math.round(minutes * 0.2),
+          description: `Review 3 concepts from ${module.name} — write a one-line summary for each`,
+        },
+        {
+          activity: "Worked Examples",
+          minutes: Math.round(minutes * 0.3),
+          description: "Go through 3 worked examples step by step — focus on the ones you find hardest",
+        },
+        {
+          activity: "Practice Problems",
+          minutes: Math.round(minutes * 0.3),
+          description: "Attempt 3 practice problems on your own — time yourself and don't look at notes",
+        },
+        {
+          activity: "Self Quiz",
+          minutes: Math.round(minutes * 0.2),
+          description: `Close your notes and write down everything you remember about ${module.name} from scratch`,
+        },
+      ];
+    } else {
+      plan = [
+        {
+          activity: "Warm Up",
+          minutes: 10,
+          description: `Skim through your previous notes on ${module.name} to get back into the flow`,
+        },
+        {
+          activity: "Deep Concept Review",
+          minutes: Math.round((minutes - 10) * 0.25),
+          description: "Pick the 3 hardest concepts and re-read them carefully — take notes as you go",
+        },
+        {
+          activity: "Worked Examples",
+          minutes: Math.round((minutes - 10) * 0.3),
+          description: "Work through 4 examples step by step — explain each step out loud as if teaching someone",
+        },
+        {
+          activity: "Practice Problems",
+          minutes: Math.round((minutes - 10) * 0.3),
+          description: "Attempt 4 practice problems under exam conditions — no notes, timed",
+        },
+        {
+          activity: "Review & Summary",
+          minutes: Math.round((minutes - 10) * 0.15),
+          description: `Write a half-page summary of what you covered today in ${module.name} — this helps with long term retention`,
+        },
+      ];
     }
 
     setStudyPlan(plan);
@@ -186,12 +222,6 @@ export function MetricsPanel({ module }: MetricsPanelProps) {
               </button>
             </div>
 
-            {planGenerated && studyPlan.length === 0 && (
-              <p className="text-muted-foreground text-center" style={{ fontSize: "0.75rem" }}>
-                Great job! No weak areas to focus on right now.
-              </p>
-            )}
-
             {planGenerated && studyPlan.length > 0 && (
               <div className="space-y-2 mt-1">
                 <p style={{ fontSize: "0.7rem", color: module.color }}>
@@ -204,28 +234,23 @@ export function MetricsPanel({ module }: MetricsPanelProps) {
                     style={{ backgroundColor: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.06)" }}
                   >
                     <div className="flex items-center justify-between mb-1">
-                      <span style={{ fontSize: "0.78rem" }} className="text-foreground">{block.subtopic}</span>
+                      <span style={{ fontSize: "0.78rem", fontWeight: 500 }} className="text-foreground">
+                        {i + 1}. {block.activity}
+                      </span>
                       <span
-                        className="px-2 py-0.5 rounded-full text-white"
+                        className="px-2 py-0.5 rounded-full text-white shrink-0 ml-2"
                         style={{ fontSize: "0.65rem", backgroundColor: module.color }}
                       >
                         {block.minutes} mins
                       </span>
                     </div>
-                    <p className="text-muted-foreground" style={{ fontSize: "0.65rem" }}>{block.reason}</p>
-                    <div className="flex items-center gap-2 mt-1.5">
-                      <div className="flex-1 h-1 bg-[var(--muted)] rounded-full overflow-hidden">
-                        <div
-                          className="h-full rounded-full"
-                          style={{ width: `${block.mastery}%`, backgroundColor: getMasteryColor(block.mastery) }}
-                        />
-                      </div>
-                      <span className="text-muted-foreground" style={{ fontSize: "0.6rem" }}>{block.mastery}%</span>
-                    </div>
+                    <p className="text-muted-foreground" style={{ fontSize: "0.68rem", lineHeight: "1.5" }}>
+                      {block.description}
+                    </p>
                   </div>
                 ))}
                 <p className="text-muted-foreground text-center pt-1" style={{ fontSize: "0.65rem" }}>
-                  Total: {studyPlan.reduce((s, b) => s + b.minutes, 0)} mins planned
+                  Total: {studyPlan.reduce((s, b) => s + b.minutes, 0)} mins
                 </p>
               </div>
             )}
