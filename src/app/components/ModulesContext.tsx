@@ -27,6 +27,8 @@ export function ModulesProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const { user } = useAuth();
 
+  const getTopicRowId = (row: any): string | undefined => row?.id ?? row?.module_id;
+
   // Load modules from Supabase when user logs in
   useEffect(() => {
     if (!user) {
@@ -51,7 +53,7 @@ export function ModulesProvider({ children }: { children: ReactNode }) {
 
       // Convert Supabase rows to Module format
       const loaded: Module[] = (data || []).map((row: any) =>
-        createNewModule(row.name, row.subtitle || "", row.tags || [], row.id)
+        createNewModule(row.name, row.subtitle || "", row.tags || [], getTopicRowId(row))
       );
 
       setModules(loaded);
@@ -64,17 +66,28 @@ export function ModulesProvider({ children }: { children: ReactNode }) {
   const addModule = async (name: string, subtitle: string, tags: string[]) => {
     if (!user) return;
 
+    const basePayload = {
+      student_id: user.id,
+      name,
+      subtitle,
+      tags,
+    };
+
     // Save to Supabase first
-    const { data, error } = await supabase
+    let { data, error } = await supabase
       .from("topics")
-      .insert({
-        student_id: user.id,
-        name,
-        subtitle,
-        tags,
-      })
+      .insert(basePayload)
       .select()
       .single();
+
+    // Compatibility retry: some schemas use module_id (non-null) instead of id
+    if (error && /module_id/i.test(error.message)) {
+      ({ data, error } = await supabase
+        .from("topics")
+        .insert({ ...basePayload, module_id: crypto.randomUUID() })
+        .select()
+        .single());
+    }
 
     if (error) {
       console.log("Error adding module:", error.message);
@@ -82,7 +95,7 @@ export function ModulesProvider({ children }: { children: ReactNode }) {
     }
 
     // Add to local state with the real ID from Supabase
-    const newMod = createNewModule(name, subtitle, tags, data.id);
+    const newMod = createNewModule(name, subtitle, tags, getTopicRowId(data));
     setModules((prev) => [...prev, newMod]);
   };
 
@@ -90,11 +103,20 @@ export function ModulesProvider({ children }: { children: ReactNode }) {
     if (!user) return;
 
     // Delete from Supabase
-    const { error } = await supabase
+    let { error } = await supabase
       .from("topics")
       .delete()
       .eq("id", id)
       .eq("student_id", user.id);
+
+    // Compatibility retry for schemas using module_id
+    if (error && /column .*id|id does not exist|id/i.test(error.message)) {
+      ({ error } = await supabase
+        .from("topics")
+        .delete()
+        .eq("module_id", id)
+        .eq("student_id", user.id));
+    }
 
     if (error) {
       console.log("Error deleting module:", error.message);

@@ -10,10 +10,79 @@ interface ChatPanelProps {
   module: Module;
 }
 
+type PersonaProfile = {
+  explanationStyle: "step-by-step" | "conceptual" | "visual" | "exam-focused";
+  pace: "slow" | "normal" | "fast";
+  tone: "encouraging" | "direct";
+  questionStyle: "short-answer" | "mcq" | "problem-solving" | "code";
+};
+
+type ErrorPatternType =
+  | "concept_confusion"
+  | "notation_confusion"
+  | "calculation_error"
+  | "syntax_issue"
+  | "uncertain_reasoning";
+
+type ErrorPattern = {
+  type: ErrorPatternType;
+  count: number;
+};
+
 type ChatApiResponse = {
   reply?: string;
   error?: string;
+  adaptiveQuestion?: string;
 };
+
+type SendOptions = {
+  quizFromUploads?: boolean;
+};
+
+const DEFAULT_PERSONA: PersonaProfile = {
+  explanationStyle: "step-by-step",
+  pace: "normal",
+  tone: "encouraging",
+  questionStyle: "problem-solving",
+};
+
+function detectErrorPatternsFromMessage(content: string): ErrorPatternType[] {
+  const text = content.toLowerCase();
+  const hits = new Set<ErrorPatternType>();
+
+  if (/(don't understand|confused|not sure|what does|i don.t get)/.test(text)) {
+    hits.add("concept_confusion");
+  }
+  if (/(symbol|notation|what is .* mean|epsilon|sigma|lambda|⊂|∈|∑|∫)/.test(text)) {
+    hits.add("notation_confusion");
+  }
+  if (/(wrong answer|calculation|computed|minus|plus|sign error|arithmetic)/.test(text)) {
+    hits.add("calculation_error");
+  }
+  if (/(error|compile|syntax|semicolon|bracket|parenthesis|verilog|code)/.test(text)) {
+    hits.add("syntax_issue");
+  }
+  if (/(maybe|guess|i think|probably|not certain)/.test(text)) {
+    hits.add("uncertain_reasoning");
+  }
+
+  return [...hits];
+}
+
+function errorPatternLabel(type: ErrorPatternType): string {
+  switch (type) {
+    case "concept_confusion":
+      return "Concept confusion";
+    case "notation_confusion":
+      return "Notation confusion";
+    case "calculation_error":
+      return "Calculation errors";
+    case "syntax_issue":
+      return "Syntax issues";
+    default:
+      return "Uncertain reasoning";
+  }
+}
 
 function getDecisionOpening(module: Module, decision: NextActionDecision): string {
   const currentSubtopic = module.subtopics.find((s) => !s.completed) || module.subtopics[0];
@@ -44,12 +113,52 @@ export function ChatPanel({ module }: ChatPanelProps) {
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const [showUpload, setShowUpload] = useState(false);
+  const [showPersonaEditor, setShowPersonaEditor] = useState(false);
   const [pendingAttachments, setPendingAttachments] = useState<ChatAttachment[]>([]);
+  const [personaProfile, setPersonaProfile] = useState<PersonaProfile>(DEFAULT_PERSONA);
+  const [errorPatterns, setErrorPatterns] = useState<ErrorPattern[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  const personaStorageKey = `persona:${module.id}`;
+  const errorStorageKey = `error-patterns:${module.id}`;
 
   useEffect(() => {
     setMessages(module.chatHistory);
   }, [module.id]);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(personaStorageKey);
+      if (raw) {
+        const parsed = JSON.parse(raw) as Partial<PersonaProfile>;
+        setPersonaProfile({ ...DEFAULT_PERSONA, ...parsed });
+      } else {
+        setPersonaProfile(DEFAULT_PERSONA);
+      }
+    } catch {
+      setPersonaProfile(DEFAULT_PERSONA);
+    }
+
+    try {
+      const raw = localStorage.getItem(errorStorageKey);
+      if (raw) {
+        const parsed = JSON.parse(raw) as ErrorPattern[];
+        setErrorPatterns(Array.isArray(parsed) ? parsed : []);
+      } else {
+        setErrorPatterns([]);
+      }
+    } catch {
+      setErrorPatterns([]);
+    }
+  }, [personaStorageKey, errorStorageKey]);
+
+  useEffect(() => {
+    localStorage.setItem(personaStorageKey, JSON.stringify(personaProfile));
+  }, [personaProfile, personaStorageKey]);
+
+  useEffect(() => {
+    localStorage.setItem(errorStorageKey, JSON.stringify(errorPatterns));
+  }, [errorPatterns, errorStorageKey]);
 
   useEffect(() => {
     let cancelled = false;
@@ -103,22 +212,41 @@ export function ChatPanel({ module }: ChatPanelProps) {
     }
   }, [messages, isTyping]);
 
-  const handleSend = async () => {
+  const handleSend = async ({ quizFromUploads = false }: SendOptions = {}) => {
     if (!input.trim() && pendingAttachments.length === 0) return;
 
     const weakSpot = getWeakSpots(module.subtopics)[0];
     const currentSubtopic = module.subtopics.find((s) => !s.completed) || module.subtopics[module.subtopics.length - 1];
     const daysInactive = getDaysInactive(new Date(module.lastStudied));
     const attachmentsToSend = [...pendingAttachments];
+    const userContent = quizFromUploads
+      ? "Quiz me using only the uploaded files. Ask one question at a time and wait for my answer."
+      : input.trim() || (attachmentsToSend.length > 0 ? `Uploaded ${attachmentsToSend.length} file(s)` : "");
 
     const userMsg: ChatMessage = {
       id: `msg-${Date.now()}`,
       role: "student",
-      content: input.trim() || (attachmentsToSend.length > 0 ? `Uploaded ${attachmentsToSend.length} file(s)` : ""),
+      content: userContent,
       timestamp: new Date(),
       attachments: attachmentsToSend.length > 0 ? attachmentsToSend : undefined,
     };
     setMessages((prev) => [...prev, userMsg]);
+
+    const detectedPatterns = detectErrorPatternsFromMessage(userMsg.content);
+    const currentPatternMap = new Map<ErrorPatternType, number>();
+    errorPatterns.forEach((item) => currentPatternMap.set(item.type, item.count));
+    detectedPatterns.forEach((pattern) => {
+      currentPatternMap.set(pattern, (currentPatternMap.get(pattern) || 0) + 1);
+    });
+    const nextErrorPatternsForRequest: ErrorPattern[] = [...currentPatternMap.entries()]
+      .map(([type, count]) => ({ type, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 5);
+
+    if (detectedPatterns.length > 0) {
+      setErrorPatterns(nextErrorPatternsForRequest);
+    }
+
     setInput("");
     setPendingAttachments([]);
     setIsTyping(true);
@@ -150,6 +278,10 @@ export function ChatPanel({ module }: ChatPanelProps) {
           currentSubtopicName: currentSubtopic?.name,
           history,
           userMessage: userMsg.content,
+          personaProfile,
+          errorPatterns: nextErrorPatternsForRequest,
+          requestAdaptiveQuestion: !quizFromUploads,
+          quizFromUploads,
           uploadedFiles: attachmentsToSend.map((attachment) => ({
             name: attachment.name,
             size: attachment.size,
@@ -167,6 +299,10 @@ export function ChatPanel({ module }: ChatPanelProps) {
         aiContent = payload.error
           ? `I couldn't reach the AI service: ${payload.error}`
           : "I couldn't reach the AI service right now. Please try again in a moment.";
+      }
+
+      if (!quizFromUploads && payload.adaptiveQuestion) {
+        aiContent = `${aiContent}\n\n${payload.adaptiveQuestion}`;
       }
 
       if (userMsg.attachments && userMsg.attachments.length > 0) {
@@ -194,6 +330,10 @@ export function ChatPanel({ module }: ChatPanelProps) {
     }
   };
 
+  const handleStartQuizFromUploads = async () => {
+    await handleSend({ quizFromUploads: true });
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -204,6 +344,8 @@ export function ChatPanel({ module }: ChatPanelProps) {
   const handleFileUpload = (attachments: ChatAttachment[]) => {
     setPendingAttachments((prev) => [...prev, ...attachments]);
   };
+
+  const topErrorPatterns = errorPatterns.slice(0, 3);
 
   const removePendingAttachment = (id: string) => {
     setPendingAttachments((prev) => prev.filter((a) => a.id !== id));
@@ -225,7 +367,71 @@ export function ChatPanel({ module }: ChatPanelProps) {
             Context-aware  ·  Adaptive pacing
           </p>
         </div>
+        <button
+          type="button"
+          onClick={() => setShowPersonaEditor((prev) => !prev)}
+          className="ml-auto text-muted-foreground hover:text-foreground px-2 py-1 rounded-lg bg-[var(--accent)]"
+          style={{ fontSize: "0.65rem" }}
+        >
+          Persona
+        </button>
       </div>
+
+      {showPersonaEditor && (
+        <div className="px-5 py-3 border-b border-[var(--border)] bg-[var(--card)]">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+            <label className="text-muted-foreground" style={{ fontSize: "0.65rem" }}>
+              Explanation
+              <select
+                value={personaProfile.explanationStyle}
+                onChange={(e) => setPersonaProfile((prev) => ({ ...prev, explanationStyle: e.target.value as PersonaProfile["explanationStyle"] }))}
+                className="mt-1 w-full bg-[var(--input-background)] rounded-lg px-2 py-1 text-foreground"
+              >
+                <option value="step-by-step">Step-by-step</option>
+                <option value="conceptual">Conceptual</option>
+                <option value="visual">Visual intuition</option>
+                <option value="exam-focused">Exam-focused</option>
+              </select>
+            </label>
+            <label className="text-muted-foreground" style={{ fontSize: "0.65rem" }}>
+              Pace
+              <select
+                value={personaProfile.pace}
+                onChange={(e) => setPersonaProfile((prev) => ({ ...prev, pace: e.target.value as PersonaProfile["pace"] }))}
+                className="mt-1 w-full bg-[var(--input-background)] rounded-lg px-2 py-1 text-foreground"
+              >
+                <option value="slow">Slow</option>
+                <option value="normal">Normal</option>
+                <option value="fast">Fast</option>
+              </select>
+            </label>
+            <label className="text-muted-foreground" style={{ fontSize: "0.65rem" }}>
+              Tone
+              <select
+                value={personaProfile.tone}
+                onChange={(e) => setPersonaProfile((prev) => ({ ...prev, tone: e.target.value as PersonaProfile["tone"] }))}
+                className="mt-1 w-full bg-[var(--input-background)] rounded-lg px-2 py-1 text-foreground"
+              >
+                <option value="encouraging">Encouraging</option>
+                <option value="direct">Direct</option>
+              </select>
+            </label>
+            <label className="text-muted-foreground" style={{ fontSize: "0.65rem" }}>
+              Question style
+              <select
+                value={personaProfile.questionStyle}
+                onChange={(e) => setPersonaProfile((prev) => ({ ...prev, questionStyle: e.target.value as PersonaProfile["questionStyle"] }))}
+                className="mt-1 w-full bg-[var(--input-background)] rounded-lg px-2 py-1 text-foreground"
+              >
+                <option value="problem-solving">Problem solving</option>
+                <option value="short-answer">Short answer</option>
+                <option value="mcq">MCQ</option>
+                <option value="code">Code</option>
+              </select>
+            </label>
+          </div>
+        </div>
+      )}
 
       {/* Messages */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto p-5 space-y-4">
@@ -240,6 +446,20 @@ export function ChatPanel({ module }: ChatPanelProps) {
             The AI tutor controls the learning flow. Upload files to provide context.
           </p>
         </div>
+
+        {topErrorPatterns.length > 0 && (
+          <div className="flex flex-wrap gap-1.5">
+            {topErrorPatterns.map((pattern) => (
+              <span
+                key={pattern.type}
+                className="px-2 py-1 rounded-lg bg-[var(--accent)] text-muted-foreground"
+                style={{ fontSize: "0.65rem" }}
+              >
+                {errorPatternLabel(pattern.type)} · {pattern.count}
+              </span>
+            ))}
+          </div>
+        )}
 
         {messages.map((msg) => (
           <div key={msg.id} className={`flex gap-3 ${msg.role === "student" ? "flex-row-reverse" : ""}`}>
@@ -344,6 +564,17 @@ export function ChatPanel({ module }: ChatPanelProps) {
                 </button>
               </div>
             ))}
+          </div>
+          <div className="mt-2 flex justify-end">
+            <button
+              type="button"
+              onClick={handleStartQuizFromUploads}
+              disabled={pendingAttachments.length === 0 || isTyping}
+              className="px-3 py-1.5 rounded-lg text-white disabled:opacity-40 transition-all cursor-pointer"
+              style={{ fontSize: "0.7rem", background: "linear-gradient(135deg, #FF7541, #B352D7)" }}
+            >
+              Quiz me from uploads
+            </button>
           </div>
         </div>
       )}

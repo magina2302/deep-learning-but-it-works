@@ -28,7 +28,85 @@ type ChatRequestBody = {
     mimeType?: string
     content?: string
   }>
+  personaProfile?: {
+    explanationStyle?: 'step-by-step' | 'conceptual' | 'visual' | 'exam-focused'
+    pace?: 'slow' | 'normal' | 'fast'
+    tone?: 'encouraging' | 'direct'
+    questionStyle?: 'short-answer' | 'mcq' | 'problem-solving' | 'code'
+  }
+  errorPatterns?: Array<{
+    type: string
+    count: number
+  }>
+  requestAdaptiveQuestion?: boolean
+  quizFromUploads?: boolean
   userMessage: string
+}
+
+function getAdaptiveDifficulty(action: string): 'foundational' | 'standard' | 'challenging' {
+  if (action === 'restart' || action === 'full_recap' || action === 'more_practice') return 'foundational'
+  if (action === 'harder_problems') return 'challenging'
+  return 'standard'
+}
+
+function generateAdaptiveQuestion(body: ChatRequestBody, nextAction: string): string {
+  const subtopic = body.currentSubtopicName || body.topicName
+  const questionStyle = body.personaProfile?.questionStyle || 'problem-solving'
+  const difficulty = getAdaptiveDifficulty(nextAction)
+  const title = `### Adaptive Practice Question (${difficulty})`
+
+  if (questionStyle === 'mcq') {
+    return [
+      title,
+      `For **${subtopic}**, choose the best answer and explain why in one sentence:`,
+      '',
+      'A) Option A',
+      'B) Option B',
+      'C) Option C',
+      'D) Option D',
+      '',
+      '_Reply with your choice and reasoning._',
+    ].join('\n')
+  }
+
+  if (questionStyle === 'code') {
+    return [
+      title,
+      `Write a small code-style solution for **${subtopic}** and explain your approach in 2-3 lines.`,
+      '',
+      '```text',
+      'Template:',
+      '1) Define inputs/assumptions',
+      '2) Build the logic step by step',
+      '3) Show output/verification',
+      '```',
+    ].join('\n')
+  }
+
+  if (difficulty === 'challenging') {
+    return [
+      title,
+      `Solve an integrated challenge that combines **${subtopic}** with one earlier concept from this topic.`,
+      '',
+      '_Show your setup first, then final result._',
+    ].join('\n')
+  }
+
+  if (difficulty === 'foundational') {
+    return [
+      title,
+      `Do one foundational exercise on **${subtopic}**: define the core idea, then solve one small example.` ,
+      '',
+      '_If stuck, ask for a hint and I will scaffold it._',
+    ].join('\n')
+  }
+
+  return [
+    title,
+    `Apply **${subtopic}** to a fresh example and explain each step briefly.`,
+    '',
+    '_Keep your answer concise and structured._',
+  ].join('\n')
 }
 
 function parseJsonBody(req: any): Promise<any> {
@@ -108,7 +186,18 @@ function chatApiPlugin(getApiKey: () => string | undefined, getModel: () => stri
             `Failed attempts on current concept: ${body.failedAttempts}`,
             `Weak spot: ${body.weakSpotName || 'none'}`,
             `Next action policy: ${decision.action} (${decision.reason})`,
+            `Learner persona: explanation=${body.personaProfile?.explanationStyle || 'step-by-step'}, pace=${body.personaProfile?.pace || 'normal'}, tone=${body.personaProfile?.tone || 'encouraging'}, questionStyle=${body.personaProfile?.questionStyle || 'problem-solving'}`,
+            `Error pattern insights: ${(body.errorPatterns || []).map((p) => `${p.type}:${p.count}`).join(', ') || 'none'}`,
             'Follow the next action policy in your response style and choice of task.',
+            'When the learner asks for practice or explanation, align with persona settings and avoid generic responses.',
+            ...(body.quizFromUploads
+              ? [
+                  'Quiz mode is enabled from uploaded files.',
+                  'Use uploaded file content as the primary source of truth.',
+                  'Ask exactly one quiz question now, then wait for the learner answer before asking the next question.',
+                  'Do not provide the answer unless the learner attempts first or explicitly asks for a hint.',
+                ]
+              : []),
           ].join('\n')
 
           const uploadedFiles = Array.isArray(body.uploadedFiles) ? body.uploadedFiles.slice(0, 4) : []
@@ -178,9 +267,11 @@ function chatApiPlugin(getApiKey: () => string | undefined, getModel: () => stri
             return
           }
 
+          const adaptiveQuestion = body.requestAdaptiveQuestion === false ? undefined : generateAdaptiveQuestion(body, decision.action)
+
           res.statusCode = 200
           res.setHeader('Content-Type', 'application/json')
-          res.end(JSON.stringify({ reply, decision }))
+          res.end(JSON.stringify({ reply, decision, adaptiveQuestion }))
         } catch {
           res.statusCode = 500
           res.setHeader('Content-Type', 'application/json')
