@@ -30,9 +30,9 @@ export function ModulePage() {
   }
 
   return (
-    <div className="h-full flex flex-col bg-[var(--background)]">
+    <div className="h-screen max-h-screen flex flex-col overflow-hidden bg-[var(--background)]">
       {/* Top bar */}
-      <div className="px-5 py-3 border-b border-[var(--border)] bg-[var(--card)] flex items-center justify-between">
+      <div className="shrink-0 px-5 py-3 border-b border-[var(--border)] bg-[var(--card)] flex items-center justify-between">
         <div className="flex items-center gap-3">
           <button
             onClick={() => navigate("/")}
@@ -70,7 +70,7 @@ export function ModulePage() {
       </div>
 
       {/* Content */}
-      <div className="flex-1 flex overflow-hidden relative">
+      <div className="flex-1 min-h-0 flex overflow-hidden relative">
         <div className={`flex-1 min-w-0 ${showMetrics ? "" : "w-full"}`}>
           <ChatPanel module={module} startRecoveryQuiz={shouldStartRecoveryQuiz} />
         </div>

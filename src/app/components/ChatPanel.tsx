@@ -166,6 +166,8 @@ export function ChatPanel({ module, startRecoveryQuiz = false }: ChatPanelProps)
   const personaStorageKey = `persona:${module.id}`;
   const errorStorageKey = `error-patterns:${module.id}`;
   const chatStorageKey = `chat-history:${user?.id ?? "guest"}:${module.id}`;
+  const decisionOpenerStorageKey = `decision-opener-shown:${user?.id ?? "guest"}:${module.id}`;
+  const recoveryQuizStorageKey = `recovery-quiz-sent:${user?.id ?? "guest"}:${module.id}`;
 
   useEffect(() => {
     try {
@@ -229,6 +231,10 @@ export function ChatPanel({ module, startRecoveryQuiz = false }: ChatPanelProps)
     let cancelled = false;
 
     const loadNextAction = async () => {
+      if (localStorage.getItem(decisionOpenerStorageKey) === "1") {
+        return;
+      }
+
       const daysInactive = getDaysInactive(new Date(module.lastStudied));
       const weakSpot = getWeakSpots(module.subtopics)[0];
       const currentSubtopic = module.subtopics.find((s) => !s.completed) || module.subtopics[module.subtopics.length - 1];
@@ -260,6 +266,7 @@ export function ChatPanel({ module, startRecoveryQuiz = false }: ChatPanelProps)
         };
 
         setMessages((prev) => [...prev, opener]);
+        localStorage.setItem(decisionOpenerStorageKey, "1");
       } catch {
       }
     };
@@ -269,7 +276,7 @@ export function ChatPanel({ module, startRecoveryQuiz = false }: ChatPanelProps)
     return () => {
       cancelled = true;
     };
-  }, [module.id]);
+  }, [module.id, decisionOpenerStorageKey]);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -413,13 +420,15 @@ export function ChatPanel({ module, startRecoveryQuiz = false }: ChatPanelProps)
 
   useEffect(() => {
     if (!startRecoveryQuiz) return;
+    if (localStorage.getItem(recoveryQuizStorageKey) === "1") return;
     if (recoveryQuizSentForModuleRef.current === module.id) return;
 
     recoveryQuizSentForModuleRef.current = module.id;
+    localStorage.setItem(recoveryQuizStorageKey, "1");
     void handleSend({
       forcedMessage: "I have not studied this module for 5 days. Give me a short recovery quiz based on my weak spots. Ask one question at a time.",
     });
-  }, [startRecoveryQuiz, module.id]);
+  }, [startRecoveryQuiz, module.id, recoveryQuizStorageKey]);
 
   const handleStartQuizFromUploads = async () => {
     await handleSend({ uploadMode: "quiz" });
