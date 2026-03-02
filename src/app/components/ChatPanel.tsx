@@ -4,6 +4,7 @@ import type { NextActionDecision } from "../data/next-action";
 import { Send, Bot, User, Sparkles, Paperclip, FileText, X } from "lucide-react";
 import { FileUploadModal } from "./FileUploadModal";
 import { useAuth } from "./AuthContext";
+import { useModules } from "./ModulesContext";
 
 const MarkdownMessage = lazy(() => import("./MarkdownMessage"));
 
@@ -37,7 +38,7 @@ type ChatApiResponse = {
 };
 
 type SendOptions = {
-  quizFromUploads?: boolean;
+  uploadMode?: "quiz" | "teach" | "revise";
 };
 
 type PersistedChatMessage = Omit<ChatMessage, "timestamp"> & {
@@ -148,6 +149,7 @@ function getDecisionOpening(module: Module, decision: NextActionDecision): strin
 
 export function ChatPanel({ module }: ChatPanelProps) {
   const { user } = useAuth();
+  const { updateModuleProgress } = useModules();
   const [messages, setMessages] = useState<ChatMessage[]>(module.chatHistory);
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
@@ -272,16 +274,22 @@ export function ChatPanel({ module }: ChatPanelProps) {
     }
   }, [messages, isTyping]);
 
-  const handleSend = async ({ quizFromUploads = false }: SendOptions = {}) => {
+  const handleSend = async ({ uploadMode }: SendOptions = {}) => {
     if (!input.trim() && pendingAttachments.length === 0) return;
 
     const weakSpot = getWeakSpots(module.subtopics)[0];
     const currentSubtopic = module.subtopics.find((s) => !s.completed) || module.subtopics[module.subtopics.length - 1];
     const daysInactive = getDaysInactive(new Date(module.lastStudied));
     const attachmentsToSend = [...pendingAttachments];
-    const userContent = quizFromUploads
-      ? "Quiz me using only the uploaded files. Ask one question at a time and wait for my answer."
-      : input.trim() || (attachmentsToSend.length > 0 ? `Uploaded ${attachmentsToSend.length} file(s)` : "");
+    const isUploadAction = Boolean(uploadMode);
+    const userContent =
+      uploadMode === "quiz"
+        ? "Quiz me using only the uploaded files. Ask one question at a time and wait for my answer."
+        : uploadMode === "teach"
+          ? "Teach me from the uploaded files. Explain clearly in simple steps and include one short check question at the end."
+          : uploadMode === "revise"
+            ? "Help me revise from the uploaded files. Give me a concise revision summary with key points and common mistakes to avoid."
+            : input.trim() || (attachmentsToSend.length > 0 ? `Uploaded ${attachmentsToSend.length} file(s)` : "");
 
     const userMsg: ChatMessage = {
       id: `msg-${Date.now()}`,
@@ -291,6 +299,12 @@ export function ChatPanel({ module }: ChatPanelProps) {
       attachments: attachmentsToSend.length > 0 ? attachmentsToSend : undefined,
     };
     setMessages((prev) => [...prev, userMsg]);
+
+    const nextMastery = Math.min(100, module.overallMastery + (isUploadAction ? 3 : 2));
+    updateModuleProgress(module.id, {
+      overallMastery: nextMastery,
+      lastStudied: new Date(),
+    });
 
     const detectedPatterns = detectErrorPatternsFromMessage(userMsg.content);
     const currentPatternMap = new Map<ErrorPatternType, number>();
@@ -340,8 +354,8 @@ export function ChatPanel({ module }: ChatPanelProps) {
           userMessage: userMsg.content,
           personaProfile,
           errorPatterns: nextErrorPatternsForRequest,
-          requestAdaptiveQuestion: !quizFromUploads,
-          quizFromUploads,
+          requestAdaptiveQuestion: !isUploadAction,
+          quizFromUploads: uploadMode === "quiz",
           uploadedFiles: attachmentsToSend.map((attachment) => ({
             name: attachment.name,
             size: attachment.size,
@@ -361,7 +375,7 @@ export function ChatPanel({ module }: ChatPanelProps) {
           : "I couldn't reach the AI service right now. Please try again in a moment.";
       }
 
-      if (!quizFromUploads && payload.adaptiveQuestion) {
+      if (!isUploadAction && payload.adaptiveQuestion) {
         aiContent = `${aiContent}\n\n${payload.adaptiveQuestion}`;
       }
 
@@ -391,7 +405,15 @@ export function ChatPanel({ module }: ChatPanelProps) {
   };
 
   const handleStartQuizFromUploads = async () => {
-    await handleSend({ quizFromUploads: true });
+    await handleSend({ uploadMode: "quiz" });
+  };
+
+  const handleTeachFromUploads = async () => {
+    await handleSend({ uploadMode: "teach" });
+  };
+
+  const handleReviseFromUploads = async () => {
+    await handleSend({ uploadMode: "revise" });
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -625,7 +647,7 @@ export function ChatPanel({ module }: ChatPanelProps) {
               </div>
             ))}
           </div>
-          <div className="mt-2 flex justify-end">
+          <div className="mt-2 flex flex-wrap justify-end gap-2">
             <button
               type="button"
               onClick={handleStartQuizFromUploads}
@@ -634,6 +656,24 @@ export function ChatPanel({ module }: ChatPanelProps) {
               style={{ fontSize: "0.7rem", background: "linear-gradient(135deg, #FF7541, #B352D7)" }}
             >
               Quiz me from uploads
+            </button>
+            <button
+              type="button"
+              onClick={handleTeachFromUploads}
+              disabled={pendingAttachments.length === 0 || isTyping}
+              className="px-3 py-1.5 rounded-lg text-white disabled:opacity-40 transition-all cursor-pointer"
+              style={{ fontSize: "0.7rem", background: "linear-gradient(135deg, #FF7541, #B352D7)" }}
+            >
+              Teach me from uploads
+            </button>
+            <button
+              type="button"
+              onClick={handleReviseFromUploads}
+              disabled={pendingAttachments.length === 0 || isTyping}
+              className="px-3 py-1.5 rounded-lg text-white disabled:opacity-40 transition-all cursor-pointer"
+              style={{ fontSize: "0.7rem", background: "linear-gradient(135deg, #FF7541, #B352D7)" }}
+            >
+              Help me revise
             </button>
           </div>
         </div>

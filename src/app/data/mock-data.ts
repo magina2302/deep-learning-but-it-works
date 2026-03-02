@@ -63,6 +63,99 @@ const daysAgo = (days: number) => new Date(now.getTime() - days * 24 * 60 * 60 *
 
 export const defaultModules: Module[] = [];
 
+export function createMockModuleWithHistory(): Module {
+  const createdAt = new Date();
+
+  return {
+    id: "mock-module-chat-history",
+    name: "Mock: Signals & Systems",
+    icon: "📡",
+    color: "#B352D7",
+    bgColor: "rgba(179,82,215,0.15)",
+    borderColor: "rgba(179,82,215,0.3)",
+    tags: ["Mock", "Verification"],
+    subtitle: "Use this module to verify chat + mastery persistence",
+    lastStudied: createdAt,
+    overallMastery: 62,
+    status: "on-track",
+    statusLabel: "Steady progress",
+    todaysFocus: "Practice convolution and step-response interpretation",
+    topicImportance: 7,
+    estimatedTimeToMastery: 160,
+    learningSummary: [
+      "Understands basic signal classifications.",
+      "Can compute simple convolutions with guidance.",
+      "Still mixing up causal vs non-causal systems in edge cases.",
+    ],
+    subtopics: [
+      {
+        id: "mock-subtopic-1",
+        name: "Signal Properties",
+        mastery: 72,
+        mistakeCount: 2,
+        attempts: 4,
+        completed: true,
+        forgettingRisk: "low",
+      },
+      {
+        id: "mock-subtopic-2",
+        name: "Convolution",
+        mastery: 58,
+        mistakeCount: 6,
+        attempts: 5,
+        completed: false,
+        forgettingRisk: "medium",
+      },
+      {
+        id: "mock-subtopic-3",
+        name: "LTI System Response",
+        mastery: 54,
+        mistakeCount: 5,
+        attempts: 3,
+        completed: false,
+        forgettingRisk: "medium",
+      },
+    ],
+    errorBreakdown: [
+      { type: "Calculation", count: 5, color: "#FF7541" },
+      { type: "Concept", count: 3, color: "#B352D7" },
+      { type: "Notation", count: 2, color: "#6129CC" },
+    ],
+    chatHistory: [
+      {
+        id: "mock-chat-1",
+        role: "ai",
+        content: "Welcome back! Last time you were working on convolution. Want a quick recap or a challenge question?",
+        timestamp: new Date(createdAt.getTime() - 1000 * 60 * 35),
+      },
+      {
+        id: "mock-chat-2",
+        role: "student",
+        content: "Quick recap first — I still confuse the overlap boundaries.",
+        timestamp: new Date(createdAt.getTime() - 1000 * 60 * 33),
+      },
+      {
+        id: "mock-chat-3",
+        role: "ai",
+        content: "Great call. Think in three steps: flip, shift, multiply-integrate. For overlap limits, ask: where are both signals non-zero at the same time?",
+        timestamp: new Date(createdAt.getTime() - 1000 * 60 * 31),
+      },
+      {
+        id: "mock-chat-4",
+        role: "student",
+        content: "Got it. Give me one more practice prompt.",
+        timestamp: new Date(createdAt.getTime() - 1000 * 60 * 29),
+      },
+      {
+        id: "mock-chat-5",
+        role: "ai",
+        content: "Try this: x(t)=u(t)-u(t-2), h(t)=u(t). Compute y(t)=x*h and describe each interval clearly.",
+        timestamp: new Date(createdAt.getTime() - 1000 * 60 * 27),
+      },
+    ],
+  };
+}
+
 export function getDaysInactive(lastStudied: Date): number {
   const now = new Date();
   return Math.floor((now.getTime() - lastStudied.getTime()) / (1000 * 60 * 60 * 24));
