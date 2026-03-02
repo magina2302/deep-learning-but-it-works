@@ -3,6 +3,7 @@ import { Module, ChatMessage, ChatAttachment, getDaysInactive, getWeakSpots } fr
 import type { NextActionDecision } from "../data/next-action";
 import { Send, Bot, User, Sparkles, Paperclip, FileText, X } from "lucide-react";
 import { FileUploadModal } from "./FileUploadModal";
+import { useAuth } from "./AuthContext";
 
 const MarkdownMessage = lazy(() => import("./MarkdownMessage"));
 
@@ -39,12 +40,49 @@ type SendOptions = {
   quizFromUploads?: boolean;
 };
 
+type PersistedChatMessage = Omit<ChatMessage, "timestamp"> & {
+  timestamp: string;
+};
+
 const DEFAULT_PERSONA: PersonaProfile = {
   explanationStyle: "step-by-step",
   pace: "normal",
   tone: "encouraging",
   questionStyle: "problem-solving",
 };
+
+function restoreChatMessages(value: unknown): ChatMessage[] {
+  if (!Array.isArray(value)) return [];
+
+  return value
+    .map((item) => {
+      const candidate = item as Partial<PersistedChatMessage>;
+      if (!candidate.id || (candidate.role !== "ai" && candidate.role !== "student") || !candidate.content || !candidate.timestamp) {
+        return null;
+      }
+
+      const parsedTimestamp = new Date(candidate.timestamp);
+      if (Number.isNaN(parsedTimestamp.getTime())) {
+        return null;
+      }
+
+      return {
+        id: candidate.id,
+        role: candidate.role,
+        content: candidate.content,
+        timestamp: parsedTimestamp,
+        attachments: Array.isArray(candidate.attachments) ? candidate.attachments : undefined,
+      } as ChatMessage;
+    })
+    .filter((message): message is ChatMessage => message !== null);
+}
+
+function serializeChatMessages(messages: ChatMessage[]): PersistedChatMessage[] {
+  return messages.map((message) => ({
+    ...message,
+    timestamp: message.timestamp.toISOString(),
+  }));
+}
 
 function detectErrorPatternsFromMessage(content: string): ErrorPatternType[] {
   const text = content.toLowerCase();
@@ -109,6 +147,7 @@ function getDecisionOpening(module: Module, decision: NextActionDecision): strin
 }
 
 export function ChatPanel({ module }: ChatPanelProps) {
+  const { user } = useAuth();
   const [messages, setMessages] = useState<ChatMessage[]>(module.chatHistory);
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
@@ -121,10 +160,31 @@ export function ChatPanel({ module }: ChatPanelProps) {
 
   const personaStorageKey = `persona:${module.id}`;
   const errorStorageKey = `error-patterns:${module.id}`;
+  const chatStorageKey = `chat-history:${user?.id ?? "guest"}:${module.id}`;
 
   useEffect(() => {
+    try {
+      const raw = localStorage.getItem(chatStorageKey);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        const restored = restoreChatMessages(parsed);
+        if (restored.length > 0) {
+          setMessages(restored);
+          return;
+        }
+      }
+    } catch {
+    }
+
     setMessages(module.chatHistory);
-  }, [module.id]);
+  }, [chatStorageKey, module.id]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(chatStorageKey, JSON.stringify(serializeChatMessages(messages)));
+    } catch {
+    }
+  }, [messages, chatStorageKey]);
 
   useEffect(() => {
     try {
@@ -599,7 +659,9 @@ export function ChatPanel({ module }: ChatPanelProps) {
             style={{ fontSize: "0.875rem", minHeight: "44px", maxHeight: "120px" }}
           />
           <button
-            onClick={handleSend}
+            onClick={() => {
+              void handleSend();
+            }}
             disabled={(!input.trim() && pendingAttachments.length === 0) || isTyping}
             className="w-10 h-10 rounded-xl flex items-center justify-center text-white disabled:opacity-30 transition-all shrink-0 cursor-pointer"
             style={{ background: "linear-gradient(135deg, #FF7541, #B352D7)" }}
