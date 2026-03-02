@@ -10,6 +10,7 @@ const MarkdownMessage = lazy(() => import("./MarkdownMessage"));
 
 interface ChatPanelProps {
   module: Module;
+  startRecoveryQuiz?: boolean;
 }
 
 type PersonaProfile = {
@@ -39,6 +40,7 @@ type ChatApiResponse = {
 
 type SendOptions = {
   uploadMode?: "quiz" | "teach" | "revise";
+  forcedMessage?: string;
 };
 
 type PersistedChatMessage = Omit<ChatMessage, "timestamp"> & {
@@ -147,7 +149,7 @@ function getDecisionOpening(module: Module, decision: NextActionDecision): strin
   }
 }
 
-export function ChatPanel({ module }: ChatPanelProps) {
+export function ChatPanel({ module, startRecoveryQuiz = false }: ChatPanelProps) {
   const { user } = useAuth();
   const { updateModuleProgress } = useModules();
   const [messages, setMessages] = useState<ChatMessage[]>(module.chatHistory);
@@ -159,6 +161,7 @@ export function ChatPanel({ module }: ChatPanelProps) {
   const [personaProfile, setPersonaProfile] = useState<PersonaProfile>(DEFAULT_PERSONA);
   const [errorPatterns, setErrorPatterns] = useState<ErrorPattern[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const recoveryQuizSentForModuleRef = useRef<string | null>(null);
 
   const personaStorageKey = `persona:${module.id}`;
   const errorStorageKey = `error-patterns:${module.id}`;
@@ -274,8 +277,8 @@ export function ChatPanel({ module }: ChatPanelProps) {
     }
   }, [messages, isTyping]);
 
-  const handleSend = async ({ uploadMode }: SendOptions = {}) => {
-    if (!input.trim() && pendingAttachments.length === 0) return;
+  const handleSend = async ({ uploadMode, forcedMessage }: SendOptions = {}) => {
+    if (!input.trim() && pendingAttachments.length === 0 && !forcedMessage) return;
 
     const weakSpot = getWeakSpots(module.subtopics)[0];
     const currentSubtopic = module.subtopics.find((s) => !s.completed) || module.subtopics[module.subtopics.length - 1];
@@ -283,6 +286,9 @@ export function ChatPanel({ module }: ChatPanelProps) {
     const attachmentsToSend = [...pendingAttachments];
     const isUploadAction = Boolean(uploadMode);
     const userContent =
+      forcedMessage
+        ? forcedMessage
+        :
       uploadMode === "quiz"
         ? "Quiz me using only the uploaded files. Ask one question at a time and wait for my answer."
         : uploadMode === "teach"
@@ -356,6 +362,7 @@ export function ChatPanel({ module }: ChatPanelProps) {
           errorPatterns: nextErrorPatternsForRequest,
           requestAdaptiveQuestion: !isUploadAction,
           quizFromUploads: uploadMode === "quiz",
+          uploadMode,
           uploadedFiles: attachmentsToSend.map((attachment) => ({
             name: attachment.name,
             size: attachment.size,
@@ -403,6 +410,16 @@ export function ChatPanel({ module }: ChatPanelProps) {
       setIsTyping(false);
     }
   };
+
+  useEffect(() => {
+    if (!startRecoveryQuiz) return;
+    if (recoveryQuizSentForModuleRef.current === module.id) return;
+
+    recoveryQuizSentForModuleRef.current = module.id;
+    void handleSend({
+      forcedMessage: "I have not studied this module for 5 days. Give me a short recovery quiz based on my weak spots. Ask one question at a time.",
+    });
+  }, [startRecoveryQuiz, module.id]);
 
   const handleStartQuizFromUploads = async () => {
     await handleSend({ uploadMode: "quiz" });

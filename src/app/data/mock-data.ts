@@ -249,3 +249,63 @@ export function generateAIResponse(module: Module, userMessage: string): string 
   ];
   return responses[Math.floor(Math.random() * responses.length)];
 }
+
+export function createInactiveReminderModule(): Module {
+  const lastStudied = daysAgo(5);
+
+  return {
+    id: "mock-module-inactive-5-days",
+    name: "Mock: Control Systems Review",
+    icon: "🛰️",
+    color: "#FF7541",
+    bgColor: "rgba(255,117,65,0.15)",
+    borderColor: "rgba(255,117,65,0.3)",
+    tags: ["Mock", "Inactivity Reminder"],
+    subtitle: "Tracked as not studied for 5 days",
+    lastStudied,
+    overallMastery: 43,
+    status: "inactive",
+    statusLabel: "5 days inactive",
+    todaysFocus: "Quick control-systems quiz to reactivate recall",
+    topicImportance: 8,
+    estimatedTimeToMastery: 210,
+    learningSummary: [
+      "Can model first-order systems but needs more confidence with transient analysis.",
+      "Makes recurring mistakes around steady-state error interpretation.",
+      "Best recovery path is a short diagnostic quiz and targeted revision.",
+    ],
+    subtopics: [
+      {
+        id: "inactive-subtopic-1",
+        name: "Time Response",
+        mastery: 46,
+        mistakeCount: 7,
+        attempts: 5,
+        completed: false,
+        forgettingRisk: "high",
+      },
+      {
+        id: "inactive-subtopic-2",
+        name: "Stability Criteria",
+        mastery: 41,
+        mistakeCount: 6,
+        attempts: 4,
+        completed: false,
+        forgettingRisk: "high",
+      },
+    ],
+    errorBreakdown: [
+      { type: "Concept", count: 5, color: "#FF7541" },
+      { type: "Calculation", count: 4, color: "#B352D7" },
+      { type: "Notation", count: 2, color: "#6129CC" },
+    ],
+    chatHistory: [
+      {
+        id: "inactive-chat-1",
+        role: "ai",
+        content: "You have not studied this module for 5 days. Want to do a quick recovery quiz now?",
+        timestamp: new Date(lastStudied.getTime() + 1000 * 60 * 3),
+      },
+    ],
+  };
+}

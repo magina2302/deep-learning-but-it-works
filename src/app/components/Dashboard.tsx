@@ -9,7 +9,7 @@ import { AddModuleModal } from "./AddModuleModal";
 import { DeleteModuleModal } from "./DeleteModuleModal";
 import { useModules } from "./ModulesContext";
 import { useAuth } from "./AuthContext";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 export function Dashboard() {
   const navigate = useNavigate();
@@ -18,6 +18,8 @@ export function Dashboard() {
   const [activeTab, setActiveTab] = useState<"overview" | "analytics">("overview");
   const [showAddModal, setShowAddModal] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Module | null>(null);
+  const [inactivityPromptModule, setInactivityPromptModule] = useState<Module | null>(null);
+  const [inactivityPromptInitialized, setInactivityPromptInitialized] = useState(false);
 
   const handleLogout = () => {
     logout();
@@ -34,6 +36,30 @@ export function Dashboard() {
     "on-track": { dot: "#10b981" },
     "needs-review": { dot: "#f59e0b" },
     inactive: { dot: "#ef4444" },
+  };
+
+  useEffect(() => {
+    if (inactivityPromptInitialized || modules.length === 0) return;
+
+    const target = [...modules]
+      .filter((moduleItem) => getDaysInactive(moduleItem.lastStudied) >= 5)
+      .sort((left, right) => getDaysInactive(right.lastStudied) - getDaysInactive(left.lastStudied))[0];
+
+    if (target) {
+      setInactivityPromptModule(target);
+    }
+
+    setInactivityPromptInitialized(true);
+  }, [modules, inactivityPromptInitialized]);
+
+  const handleTakeQuizNow = () => {
+    if (!inactivityPromptModule) return;
+    navigate(`/module/${inactivityPromptModule.id}?action=quiz-recovery`);
+    setInactivityPromptModule(null);
+  };
+
+  const handleComeBackLater = () => {
+    setInactivityPromptModule(null);
   };
 
   return (
@@ -379,6 +405,36 @@ export function Dashboard() {
         onClose={() => setDeleteTarget(null)}
         onConfirm={() => { if (deleteTarget) deleteModule(deleteTarget.id); setDeleteTarget(null); }}
       />
+
+      {inactivityPromptModule && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-[1px] flex items-center justify-center px-4">
+          <div className="w-full max-w-md rounded-2xl border border-[var(--border)] bg-[var(--card)] p-5">
+            <h3 className="mb-2">Inactivity Reminder</h3>
+            <p className="text-muted-foreground mb-4" style={{ fontSize: "0.85rem", lineHeight: "1.45" }}>
+              You have not studied <span className="text-foreground">{inactivityPromptModule.name}</span> for {getDaysInactive(inactivityPromptModule.lastStudied)} days.
+              Do you want to take a quick recovery quiz now, or move on and come back later?
+            </p>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={handleComeBackLater}
+                className="px-3 py-2 rounded-xl bg-[var(--accent)] text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                style={{ fontSize: "0.8rem" }}
+              >
+                Come back later
+              </button>
+              <button
+                type="button"
+                onClick={handleTakeQuizNow}
+                className="px-3 py-2 rounded-xl text-white cursor-pointer"
+                style={{ fontSize: "0.8rem", background: "linear-gradient(135deg, #FF7541, #B352D7)" }}
+              >
+                Take quiz now
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

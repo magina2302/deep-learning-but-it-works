@@ -2,15 +2,24 @@ import { Module, getDaysInactive, getInactivityLabel, getWeakSpots } from "../da
 import {
   Clock, Target, AlertTriangle, CheckCircle2, Circle, BookOpen, Lightbulb,
 } from "lucide-react";
+import { useEffect, useState } from "react";
+import { recommendStudyPlan, StudyPlanItem } from "../data/study-plan";
 
 interface MetricsPanelProps {
   module: Module;
 }
 
 export function MetricsPanel({ module }: MetricsPanelProps) {
+  const [planMinutes, setPlanMinutes] = useState(90);
+  const [studyPlan, setStudyPlan] = useState<StudyPlanItem[]>(() => recommendStudyPlan(module, 90));
+
   const daysInactive = getDaysInactive(module.lastStudied);
   const weakSpots = getWeakSpots(module.subtopics);
   const completedCount = module.subtopics.filter((s) => s.completed).length;
+
+  useEffect(() => {
+    setStudyPlan(recommendStudyPlan(module, planMinutes));
+  }, [module.id]);
 
   const getMasteryColor = (mastery: number) => {
     if (mastery >= 80) return "#10b981";
@@ -24,6 +33,42 @@ export function MetricsPanel({ module }: MetricsPanelProps) {
     if (mastery >= 50) return "Developing";
     if (mastery > 0) return "Needs work";
     return "Not started";
+  };
+
+  const getPlanStatusMeta = (status: StudyPlanItem["status"]) => {
+    if (status === "needs-work") {
+      return {
+        label: "Needs work",
+        pillBg: "rgba(239,68,68,0.16)",
+        pillColor: "#f87171",
+      };
+    }
+
+    if (status === "developing") {
+      return {
+        label: "Developing",
+        pillBg: "rgba(245,158,11,0.18)",
+        pillColor: "#fbbf24",
+      };
+    }
+
+    if (status === "strong") {
+      return {
+        label: "Strong",
+        pillBg: "rgba(16,185,129,0.18)",
+        pillColor: "#34d399",
+      };
+    }
+
+    return {
+      label: "Break",
+      pillBg: "rgba(56,189,248,0.18)",
+      pillColor: "#38bdf8",
+    };
+  };
+
+  const handleGeneratePlan = () => {
+    setStudyPlan(recommendStudyPlan(module, planMinutes));
   };
 
   return (
@@ -70,6 +115,85 @@ export function MetricsPanel({ module }: MetricsPanelProps) {
                 background: `linear-gradient(90deg, ${module.color}, ${module.color}bb)`,
               }}
             />
+          </div>
+        </div>
+
+        {/* Study Plan Recommendation */}
+        <div>
+          <div className="flex items-center justify-between gap-2 mb-3">
+            <h4>Recommended Study Plan</h4>
+            <span className="text-muted-foreground" style={{ fontSize: "0.68rem" }}>Unique to this module</span>
+          </div>
+
+          <div className="flex items-center gap-2 mb-3">
+            <input
+              type="number"
+              min={30}
+              max={180}
+              step={5}
+              value={planMinutes}
+              onChange={(event) => {
+                const next = Number(event.target.value);
+                if (Number.isNaN(next)) return;
+                setPlanMinutes(Math.max(30, Math.min(180, next)));
+              }}
+              className="w-20 h-9 rounded-xl px-3 bg-[var(--input-background)] text-foreground border border-[var(--border)] focus:outline-none"
+              style={{ fontSize: "0.8rem" }}
+            />
+            <button
+              type="button"
+              onClick={handleGeneratePlan}
+              className="h-9 px-3 rounded-xl text-white cursor-pointer"
+              style={{
+                fontSize: "0.78rem",
+                background: "linear-gradient(135deg, #FF7541, #B352D7)",
+              }}
+            >
+              Generate
+            </button>
+          </div>
+
+          <div className="space-y-2.5">
+            {studyPlan.map((item, index) => {
+              const meta = getPlanStatusMeta(item.status);
+              return (
+                <div
+                  key={item.id}
+                  className="rounded-2xl p-3.5"
+                  style={{
+                    background: item.status === "break"
+                      ? "linear-gradient(135deg, rgba(56,189,248,0.08), rgba(97,41,204,0.05))"
+                      : "linear-gradient(135deg, rgba(179,82,215,0.08), rgba(97,41,204,0.05))",
+                    border: item.status === "break"
+                      ? "1px solid rgba(56,189,248,0.25)"
+                      : "1px solid rgba(179,82,215,0.2)",
+                  }}
+                >
+                  <div className="flex items-start justify-between gap-2 mb-1.5">
+                    <p className="text-foreground" style={{ fontSize: "0.98rem" }}>
+                      {index + 1}. {item.title}
+                    </p>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <span
+                        className="px-2 py-0.5 rounded-full"
+                        style={{ fontSize: "0.62rem", backgroundColor: meta.pillBg, color: meta.pillColor }}
+                      >
+                        {meta.label}
+                      </span>
+                      <span
+                        className="px-2 py-0.5 rounded-full text-white"
+                        style={{ fontSize: "0.62rem", background: "linear-gradient(135deg, #FF7541, #B352D7)" }}
+                      >
+                        {item.minutes} mins
+                      </span>
+                    </div>
+                  </div>
+                  <p className="text-muted-foreground" style={{ fontSize: "0.76rem", lineHeight: "1.45" }}>
+                    {item.description}
+                  </p>
+                </div>
+              );
+            })}
           </div>
         </div>
 

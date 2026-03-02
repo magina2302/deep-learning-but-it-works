@@ -1,4 +1,4 @@
-import { useParams, useNavigate } from "react-router";
+import { useParams, useNavigate, useLocation } from "react-router";
 import { ChatPanel } from "./ChatPanel";
 import { MetricsPanel } from "./MetricsPanel";
 import { ArrowLeft, PanelRightOpen, PanelRightClose } from "lucide-react";
@@ -9,8 +9,10 @@ import { useModules } from "./ModulesContext";
 export function ModulePage() {
   const { moduleId } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const { modules } = useModules();
   const [showMetrics, setShowMetrics] = useState(true);
+  const shouldStartRecoveryQuiz = new URLSearchParams(location.search).get("action") === "quiz-recovery";
 
   const module = modules.find((m) => m.id === moduleId);
 
@@ -70,7 +72,7 @@ export function ModulePage() {
       {/* Content */}
       <div className="flex-1 flex overflow-hidden relative">
         <div className={`flex-1 min-w-0 ${showMetrics ? "" : "w-full"}`}>
-          <ChatPanel module={module} />
+          <ChatPanel module={module} startRecoveryQuiz={shouldStartRecoveryQuiz} />
         </div>
 
         {showMetrics && (

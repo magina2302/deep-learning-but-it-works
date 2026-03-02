@@ -2,7 +2,7 @@ import React from "react";
 import { createContext, useContext, useState, useEffect, ReactNode } from "react";
 import { supabase } from "../../supabase";
 import { useAuth } from "./AuthContext";
-import { Module, createNewModule, createMockModuleWithHistory } from "../data/mock-data";
+import { Module, createNewModule, createMockModuleWithHistory, createInactiveReminderModule } from "../data/mock-data";
 
 interface ModulesContextType {
   modules: Module[];
@@ -112,10 +112,13 @@ export function ModulesProvider({ children }: { children: ReactNode }) {
         createNewModule(row.name, row.subtitle || "", row.tags || [], getTopicRowId(row))
       );
 
-      const mockModule = createMockModuleWithHistory();
-      const merged = loaded.some((moduleItem) => moduleItem.id === mockModule.id)
-        ? loaded
-        : [mockModule, ...loaded];
+      const mockModules = [createMockModuleWithHistory(), createInactiveReminderModule()];
+      const merged = [...loaded];
+      mockModules.forEach((mockModule) => {
+        if (!merged.some((moduleItem) => moduleItem.id === mockModule.id)) {
+          merged.unshift(mockModule);
+        }
+      });
 
       const hydrated = applyStoredProgress(merged);
 
@@ -160,7 +163,7 @@ export function ModulesProvider({ children }: { children: ReactNode }) {
   const deleteModule = async (id: string) => {
     if (!user) return;
 
-    if (id === "mock-module-chat-history") {
+    if (id === "mock-module-chat-history" || id === "mock-module-inactive-5-days") {
       setModules((prev) => {
         const next = prev.filter((m) => m.id !== id);
         persistProgressForModules(next);
