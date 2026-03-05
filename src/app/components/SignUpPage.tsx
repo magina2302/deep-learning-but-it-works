@@ -3,6 +3,23 @@ import { useNavigate } from "react-router";
 import { useAuth } from "./AuthContext";
 import { GraduationCap, Eye, EyeOff, Loader2 } from "lucide-react";
 
+const signupStoryImage = `data:image/svg+xml;utf8,${encodeURIComponent(`
+  <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 900 1200'>
+    <defs>
+      <linearGradient id='bg' x1='0' y1='0' x2='1' y2='1'>
+        <stop offset='0%' stop-color='#DE6AE4'/>
+        <stop offset='100%' stop-color='#6129CC'/>
+      </linearGradient>
+    </defs>
+    <rect width='900' height='1200' fill='url(#bg)'/>
+    <circle cx='760' cy='190' r='250' fill='white' opacity='0.15'/>
+    <circle cx='80' cy='1060' r='300' fill='white' opacity='0.11'/>
+    <path d='M0 850 C 180 720, 340 980, 560 860 C 740 760, 820 940, 900 870 L900 1200 L0 1200 Z' fill='white' opacity='0.18'/>
+    <text x='66' y='182' font-family='Inter, Arial, sans-serif' font-size='52' font-weight='700' fill='white'>Start The Journey</text>
+    <text x='66' y='236' font-family='Inter, Arial, sans-serif' font-size='30' fill='white' opacity='0.9'>Build your learning system from day one.</text>
+  </svg>
+`)}`;
+
 export function SignUpPage() {
   const navigate = useNavigate();
   const { signup } = useAuth();
@@ -42,21 +59,31 @@ export function SignUpPage() {
         <div className="absolute top-1/2 left-1/4 w-64 h-64 rounded-full opacity-10" style={{ background: "radial-gradient(circle, #FF7541 0%, transparent 70%)" }} />
       </div>
 
-      <div className="w-full max-w-md relative">
-        <div className="text-center mb-8">
-          <div
-            className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4"
-            style={{ background: "linear-gradient(135deg, #DE6AE4, #6129CC)" }}
-          >
-            <GraduationCap className="w-8 h-8 text-white" />
+      <div className="w-full max-w-5xl relative grid grid-cols-1 lg:grid-cols-2 rounded-3xl overflow-hidden border border-[var(--border)] bg-[var(--card)]">
+        <div className="hidden lg:block relative min-h-[720px] order-2 lg:order-1">
+          <img src={signupStoryImage} alt="Onboarding story illustration" className="w-full h-full object-cover" />
+          <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent" />
+          <div className="absolute bottom-8 left-8 right-8 rounded-2xl bg-black/25 backdrop-blur-sm border border-white/20 p-5">
+            <p className="text-white" style={{ fontSize: "0.9rem", lineHeight: "1.6" }}>
+              "Learning systems beat motivation spikes. Design the system, then trust it."
+            </p>
           </div>
-          <h1>Create your account</h1>
-          <p className="text-muted-foreground mt-1" style={{ fontSize: "0.875rem" }}>
-            Start your learning journey
-          </p>
         </div>
 
-        <div className="bg-[var(--card)] border border-[var(--border)] rounded-2xl p-6">
+        <div className="p-6 md:p-10 lg:p-12 order-1 lg:order-2">
+          <div className="text-center mb-8">
+            <div
+              className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4"
+              style={{ background: "linear-gradient(135deg, #DE6AE4, #6129CC)" }}
+            >
+              <GraduationCap className="w-8 h-8 text-white" />
+            </div>
+            <h1>Create your account</h1>
+            <p className="text-muted-foreground mt-1" style={{ fontSize: "0.875rem" }}>
+              Start your learning journey
+            </p>
+          </div>
+
           <form onSubmit={handleSubmit} className="space-y-4">
             {/* Username */}
             <div>

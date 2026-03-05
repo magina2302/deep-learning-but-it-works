@@ -4,6 +4,23 @@ import { useNavigate } from "react-router";
 import { useAuth } from "./AuthContext";
 import { GraduationCap, Eye, EyeOff, Loader2 } from "lucide-react";
 
+const loginStoryImage = `data:image/svg+xml;utf8,${encodeURIComponent(`
+  <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 900 1200'>
+    <defs>
+      <linearGradient id='bg' x1='0' y1='0' x2='1' y2='1'>
+        <stop offset='0%' stop-color='#FF7541'/>
+        <stop offset='100%' stop-color='#6129CC'/>
+      </linearGradient>
+    </defs>
+    <rect width='900' height='1200' fill='url(#bg)'/>
+    <circle cx='760' cy='220' r='240' fill='white' opacity='0.14'/>
+    <circle cx='120' cy='1020' r='280' fill='white' opacity='0.12'/>
+    <path d='M0 860 C 190 740, 320 980, 520 850 C 700 730, 840 930, 900 860 L900 1200 L0 1200 Z' fill='white' opacity='0.18'/>
+    <text x='70' y='180' font-family='Inter, Arial, sans-serif' font-size='54' font-weight='700' fill='white'>Return To The Work</text>
+    <text x='70' y='236' font-family='Inter, Arial, sans-serif' font-size='30' fill='white' opacity='0.9'>Small sessions build big mastery.</text>
+  </svg>
+`)}`;
+
 export function LoginPage() {
   const navigate = useNavigate();
   const { login, user } = useAuth();
@@ -45,21 +62,31 @@ export function LoginPage() {
         <div className="absolute top-1/3 right-1/4 w-64 h-64 rounded-full opacity-10" style={{ background: "radial-gradient(circle, #6129CC 0%, transparent 70%)" }} />
       </div>
 
-      <div className="w-full max-w-md relative">
-        <div className="text-center mb-8">
-          <div
-            className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4"
-            style={{ background: "linear-gradient(135deg, #FF7541, #B352D7)" }}
-          >
-            <GraduationCap className="w-8 h-8 text-white" />
+      <div className="w-full max-w-5xl relative grid grid-cols-1 lg:grid-cols-2 rounded-3xl overflow-hidden border border-[var(--border)] bg-[var(--card)]">
+        <div className="hidden lg:block relative min-h-[680px]">
+          <img src={loginStoryImage} alt="Learning journey illustration" className="w-full h-full object-cover" />
+          <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent" />
+          <div className="absolute bottom-8 left-8 right-8 rounded-2xl bg-black/25 backdrop-blur-sm border border-white/20 p-5">
+            <p className="text-white" style={{ fontSize: "0.9rem", lineHeight: "1.6" }}>
+              "The edge belongs to people who can focus repeatedly, not just intensely."
+            </p>
           </div>
-          <h1>Welcome back</h1>
-          <p className="text-muted-foreground mt-1" style={{ fontSize: "0.875rem" }}>
-            Sign in to continue learning
-          </p>
         </div>
 
-        <div className="bg-[var(--card)] border border-[var(--border)] rounded-2xl p-6">
+        <div className="p-6 md:p-10 lg:p-12">
+          <div className="text-center mb-8">
+            <div
+              className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4"
+              style={{ background: "linear-gradient(135deg, #FF7541, #B352D7)" }}
+            >
+              <GraduationCap className="w-8 h-8 text-white" />
+            </div>
+            <h1>Welcome back</h1>
+            <p className="text-muted-foreground mt-1" style={{ fontSize: "0.875rem" }}>
+              Sign in to continue learning
+            </p>
+          </div>
+
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label className="block mb-1.5" style={{ fontSize: "0.8rem" }}>Email</label>

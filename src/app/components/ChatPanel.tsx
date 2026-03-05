@@ -54,6 +54,21 @@ const DEFAULT_PERSONA: PersonaProfile = {
   questionStyle: "problem-solving",
 };
 
+const tutorStoryImage = `data:image/svg+xml;utf8,${encodeURIComponent(`
+  <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 280'>
+    <defs>
+      <linearGradient id='bg' x1='0' y1='0' x2='1' y2='1'>
+        <stop offset='0%' stop-color='#FF7541'/>
+        <stop offset='100%' stop-color='#6129CC'/>
+      </linearGradient>
+    </defs>
+    <rect width='1200' height='280' fill='url(#bg)'/>
+    <circle cx='1040' cy='70' r='170' fill='white' opacity='0.14'/>
+    <circle cx='180' cy='300' r='220' fill='white' opacity='0.12'/>
+    <path d='M0 200 C 220 150, 340 250, 560 200 C 760 160, 960 250, 1200 190 L1200 280 L0 280 Z' fill='white' opacity='0.18'/>
+  </svg>
+`)}`;
+
 function restoreChatMessages(value: unknown): ChatMessage[] {
   if (!Array.isArray(value)) return [];
 
@@ -461,28 +476,35 @@ export function ChatPanel({ module, startRecoveryQuiz = false }: ChatPanelProps)
 
   return (
     <div className="flex flex-col h-full bg-[var(--background)]">
-      {/* Chat header */}
-      <div className="px-5 py-4 border-b border-[var(--border)] flex items-center gap-3 bg-[var(--card)]">
-        <div
-          className="w-9 h-9 rounded-xl flex items-center justify-center"
-          style={{ background: "linear-gradient(135deg, #FF7541, #B352D7)" }}
-        >
-          <Sparkles className="w-4 h-4 text-white" />
+      <div className="px-5 pt-4 pb-3 border-b border-[var(--border)] bg-[var(--card)]">
+        <div className="relative rounded-2xl overflow-hidden border border-[var(--border)] mb-3">
+          <img src={tutorStoryImage} alt="AI tutor story banner" className="w-full h-20 object-cover" />
+          <div className="absolute inset-0 bg-gradient-to-r from-black/55 via-black/20 to-transparent" />
+          <div className="absolute inset-0 px-4 py-3 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div
+                className="w-9 h-9 rounded-xl flex items-center justify-center"
+                style={{ background: "linear-gradient(135deg, #FF7541, #B352D7)" }}
+              >
+                <Sparkles className="w-4 h-4 text-white" />
+              </div>
+              <div>
+                <h3 className="text-white">AI Tutor</h3>
+                <p className="text-white/80" style={{ fontSize: "0.7rem" }}>
+                  Context-aware  ·  Adaptive pacing
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowPersonaEditor((prev) => !prev)}
+              className="text-white px-2 py-1 rounded-lg bg-black/25 border border-white/20"
+              style={{ fontSize: "0.65rem" }}
+            >
+              Persona
+            </button>
+          </div>
         </div>
-        <div>
-          <h3>AI Tutor</h3>
-          <p className="text-muted-foreground" style={{ fontSize: "0.7rem" }}>
-            Context-aware  ·  Adaptive pacing
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={() => setShowPersonaEditor((prev) => !prev)}
-          className="ml-auto text-muted-foreground hover:text-foreground px-2 py-1 rounded-lg bg-[var(--accent)]"
-          style={{ fontSize: "0.65rem" }}
-        >
-          Persona
-        </button>
       </div>
 
       {showPersonaEditor && (
