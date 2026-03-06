@@ -5,12 +5,14 @@ import {
 import { useEffect, useState } from "react";
 import { recommendStudyPlan, StudyPlanItem } from "../data/study-plan";
 import { createModuleSummary } from "../data/learning-core";
+import { useModules } from "./ModulesContext";
 
 interface MetricsPanelProps {
   module: Module;
 }
 
 export function MetricsPanel({ module }: MetricsPanelProps) {
+  const { setWeeklyPlanBlockCompletion, markModuleCheckIn } = useModules();
   const [timeAvailable, setTimeAvailable] = useState("90");
   const [studyPlan, setStudyPlan] = useState<StudyPlanItem[]>([]);
   const [planGenerated, setPlanGenerated] = useState(false);
@@ -174,8 +176,25 @@ export function MetricsPanel({ module }: MetricsPanelProps) {
               {weeklyPlan.map((block) => (
                 <div key={block.id} className="rounded-xl border border-[var(--border)] bg-[var(--accent)] px-3 py-3">
                   <div className="flex items-center justify-between gap-2 mb-1">
-                    <span className="text-foreground" style={{ fontSize: "0.78rem" }}>{block.title}</span>
-                    <span className="px-2 py-0.5 rounded-full text-white" style={{ fontSize: "0.6rem", backgroundColor: module.color }}>{block.minutes} mins</span>
+                    <div>
+                      <span className="text-foreground" style={{ fontSize: "0.78rem", textDecoration: block.isCompleted ? "line-through" : "none", opacity: block.isCompleted ? 0.7 : 1 }}>{block.title}</span>
+                      {block.scheduledFor && (
+                        <p className="text-muted-foreground" style={{ fontSize: "0.62rem" }}>
+                          Scheduled for {new Date(block.scheduledFor).toLocaleDateString()}
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="px-2 py-0.5 rounded-full text-white" style={{ fontSize: "0.6rem", backgroundColor: block.isCompleted ? "#10b981" : module.color }}>{block.minutes} mins</span>
+                      <button
+                        type="button"
+                        onClick={() => void setWeeklyPlanBlockCompletion(module.id, block.id, !(block.isCompleted ?? false))}
+                        className="px-2 py-1 rounded-lg bg-[var(--card)] border border-[var(--border)] text-foreground cursor-pointer"
+                        style={{ fontSize: "0.62rem" }}
+                      >
+                        {block.isCompleted ? "Undo" : "Done"}
+                      </button>
+                    </div>
                   </div>
                   <p className="text-muted-foreground" style={{ fontSize: "0.68rem", lineHeight: "1.45" }}>{block.reason}</p>
                 </div>
@@ -183,6 +202,33 @@ export function MetricsPanel({ module }: MetricsPanelProps) {
             </div>
           </div>
         )}
+
+        <div>
+          <div className="flex items-center gap-2 mb-3">
+            <Clock className="w-4 h-4" style={{ color: module.color }} />
+            <h4>Habit Loop</h4>
+          </div>
+          <div className="rounded-xl p-4 border border-[var(--border)] bg-[var(--accent)] flex items-center justify-between gap-3">
+            <div>
+              <p className="text-foreground" style={{ fontSize: "0.78rem" }}>
+                {module.lastCheckInAt
+                  ? `Last check-in: ${new Date(module.lastCheckInAt).toLocaleString()}`
+                  : "No check-in yet for this module."}
+              </p>
+              <p className="text-muted-foreground" style={{ fontSize: "0.68rem", lineHeight: "1.45" }}>
+                Quick check-ins keep the coach state fresh even on short study days.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => void markModuleCheckIn(module.id)}
+              className="px-3 py-2 rounded-xl text-white cursor-pointer"
+              style={{ fontSize: "0.72rem", background: `linear-gradient(135deg, ${module.color}, #B352D7)` }}
+            >
+              Check in
+            </button>
+          </div>
+        </div>
 
         {nextActions.length > 0 && (
           <div>

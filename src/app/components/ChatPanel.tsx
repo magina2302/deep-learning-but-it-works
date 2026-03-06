@@ -1,11 +1,12 @@
-import { useEffect, useMemo, useRef, useState, lazy, Suspense } from "react";
-import { Bot, CheckCircle2, ClipboardPaste, FileText, Mic, Paperclip, Send, Sparkles, User, Volume2, X } from "lucide-react";
+import { useEffect, useRef, useState, lazy, Suspense } from "react";
+import { Bot, CheckCircle2, ClipboardPaste, FileText, Paperclip, Send, Sparkles, User, X } from "lucide-react";
 import type { Module, ChatAttachment, ChatMessage } from "../data/mock-data";
 import type { CitationRef, ReviewOutcome } from "../data/learning-core";
 import { getDaysInactive, getWeakSpots } from "../data/mock-data";
 import { FileUploadModal } from "./FileUploadModal";
 import { useAuth } from "./AuthContext";
 import { useModules } from "./ModulesContext";
+import { motion } from "motion/react";
 
 const MarkdownMessage = lazy(() => import("./MarkdownMessage"));
 
@@ -47,11 +48,7 @@ type SendOptions = {
   forcedMessage?: string;
 };
 
-type SessionMode = "coach" | "oral-quiz" | "roleplay" | "interview";
-
-type PersistedChatMessage = Omit<ChatMessage, "timestamp"> & {
-  timestamp: string;
-};
+type SessionMode = "coach" | "roleplay" | "interview";
 
 const DEFAULT_PERSONA: PersonaProfile = {
   explanationStyle: "step-by-step",
@@ -59,55 +56,6 @@ const DEFAULT_PERSONA: PersonaProfile = {
   tone: "encouraging",
   questionStyle: "problem-solving",
 };
-
-const tutorStoryImage = `data:image/svg+xml;utf8,${encodeURIComponent(`
-  <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 280'>
-    <defs>
-      <linearGradient id='bg' x1='0' y1='0' x2='1' y2='1'>
-        <stop offset='0%' stop-color='#FF7541'/>
-        <stop offset='100%' stop-color='#6129CC'/>
-      </linearGradient>
-    </defs>
-    <rect width='1200' height='280' fill='url(#bg)'/>
-    <circle cx='1040' cy='70' r='170' fill='white' opacity='0.14'/>
-    <circle cx='180' cy='300' r='220' fill='white' opacity='0.12'/>
-    <path d='M0 200 C 220 150, 340 250, 560 200 C 760 160, 960 250, 1200 190 L1200 280 L0 280 Z' fill='white' opacity='0.18'/>
-  </svg>
-`)}`;
-
-function restoreChatMessages(value: unknown): ChatMessage[] {
-  if (!Array.isArray(value)) return [];
-
-  return value
-    .map((item) => {
-      const candidate = item as Partial<PersistedChatMessage>;
-      if (!candidate.id || (candidate.role !== "ai" && candidate.role !== "student") || !candidate.content || !candidate.timestamp) {
-        return null;
-      }
-
-      const parsedTimestamp = new Date(candidate.timestamp);
-      if (Number.isNaN(parsedTimestamp.getTime())) {
-        return null;
-      }
-
-      return {
-        id: candidate.id,
-        role: candidate.role,
-        content: candidate.content,
-        timestamp: parsedTimestamp,
-        attachments: Array.isArray(candidate.attachments) ? candidate.attachments : undefined,
-        meta: candidate.meta,
-      } as ChatMessage;
-    })
-    .filter((message): message is ChatMessage => message !== null);
-}
-
-function serializeChatMessages(messages: ChatMessage[]): PersistedChatMessage[] {
-  return messages.map((message) => ({
-    ...message,
-    timestamp: message.timestamp.toISOString(),
-  }));
-}
 
 function detectErrorPatternsFromMessage(content: string): ErrorPatternType[] {
   const text = content.toLowerCase();
@@ -180,9 +128,14 @@ function formatConfidenceBadge(label?: "high" | "medium" | "low") {
   return { text: "Medium confidence", color: "#f59e0b", bg: "rgba(245,158,11,0.12)" };
 }
 
+function isToday(value?: string): boolean {
+  if (!value) return false;
+  return value.slice(0, 10) === new Date().toISOString().slice(0, 10);
+}
+
 export function ChatPanel({ module, startRecoveryQuiz = false }: ChatPanelProps) {
   const { user } = useAuth();
-  const { updateModuleProgress, ingestStudyMaterials, recordReviewOutcome } = useModules();
+  const { updateModuleProgress, ingestStudyMaterials, recordReviewOutcome, appendChatMessages, markModuleCheckIn } = useModules();
   const [messages, setMessages] = useState<ChatMessage[]>(module.chatHistory);
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
@@ -192,46 +145,27 @@ export function ChatPanel({ module, startRecoveryQuiz = false }: ChatPanelProps)
   const [personaProfile, setPersonaProfile] = useState<PersonaProfile>(DEFAULT_PERSONA);
   const [errorPatterns, setErrorPatterns] = useState<ErrorPattern[]>([]);
   const [clipboardHint, setClipboardHint] = useState<string | null>(null);
-  const [voiceEnabled, setVoiceEnabled] = useState(false);
-  const [isListening, setIsListening] = useState(false);
   const [sessionMode, setSessionMode] = useState<SessionMode>("coach");
   const scrollRef = useRef<HTMLDivElement>(null);
   const recoveryQuizSentForModuleRef = useRef<string | null>(null);
-  const recognitionRef = useRef<any>(null);
 
   const personaStorageKey = `persona:${module.id}`;
   const errorStorageKey = `error-patterns:${module.id}`;
-  const chatStorageKey = `chat-history:${user?.id ?? "guest"}:${module.id}`;
   const decisionOpenerStorageKey = `decision-opener-shown:${user?.id ?? "guest"}:${module.id}`;
   const recoveryQuizStorageKey = `recovery-quiz-sent:${user?.id ?? "guest"}:${module.id}`;
   const dueToday = module.dueToday || [];
   const topDueReview = dueToday[0];
   const topErrorPatterns = errorPatterns.slice(0, 3);
   const streakDays = module.accountability?.streakDays || 0;
+  const latestAiMessage = [...messages].reverse().find((message) => message.role === "ai");
+  const latestAiCitations = latestAiMessage?.meta?.citations || [];
+  const needsTrustNudge = !latestAiMessage?.meta?.confidence || latestAiMessage.meta.confidence === "low" || latestAiCitations.length === 0;
+  const nextOpenPlanBlock = (module.weeklyPlan || []).find((block) => !block.isCompleted);
+  const checkedInToday = isToday(module.lastCheckInAt);
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(chatStorageKey);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        const restored = restoreChatMessages(parsed);
-        if (restored.length > 0) {
-          setMessages(restored);
-          return;
-        }
-      }
-    } catch {
-    }
-
     setMessages(module.chatHistory);
-  }, [chatStorageKey, module.id, module.chatHistory]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(chatStorageKey, JSON.stringify(serializeChatMessages(messages)));
-    } catch {
-    }
-  }, [messages, chatStorageKey]);
+  }, [module.id, module.chatHistory]);
 
   useEffect(() => {
     try {
@@ -267,7 +201,7 @@ export function ChatPanel({ module, startRecoveryQuiz = false }: ChatPanelProps)
     let cancelled = false;
 
     const loadNextAction = async () => {
-      if (localStorage.getItem(decisionOpenerStorageKey) === "1") {
+      if (module.chatHistory.some((message) => message.meta?.mode === "next-action")) {
         return;
       }
 
@@ -294,13 +228,20 @@ export function ChatPanel({ module, startRecoveryQuiz = false }: ChatPanelProps)
         if (!payload.decision || cancelled) return;
 
         const opener: ChatMessage = {
-          id: `decision-${module.id}-${Date.now()}`,
+          id: crypto.randomUUID(),
           role: "ai",
           content: `Next best move: **${payload.decision.action.replace(/_/g, " ")}**. ${payload.decision.reason}`,
           timestamp: new Date(),
+          meta: {
+            confidence: "high",
+            confidenceReason: "This recommendation is generated from your activity, weak spots, and inactivity signals.",
+            mode: "next-action",
+            citations: [{ sourceName: module.name }],
+          },
         };
 
         setMessages((previous) => [...previous, opener]);
+        void appendChatMessages(module.id, [opener]);
         localStorage.setItem(decisionOpenerStorageKey, "1");
       } catch {
       }
@@ -310,7 +251,7 @@ export function ChatPanel({ module, startRecoveryQuiz = false }: ChatPanelProps)
     return () => {
       cancelled = true;
     };
-  }, [decisionOpenerStorageKey, module.id, module.lastStudied, module.overallMastery, module.subtopics]);
+  }, [appendChatMessages, decisionOpenerStorageKey, module.chatHistory, module.id, module.lastStudied, module.name, module.overallMastery, module.subtopics]);
 
   useEffect(() => {
     if (!startRecoveryQuiz) return;
@@ -323,53 +264,6 @@ export function ChatPanel({ module, startRecoveryQuiz = false }: ChatPanelProps)
       forcedMessage: "I have not studied this module for 5 days. Give me a short recovery quiz based on my weak spots. Ask one question at a time.",
     });
   }, [module.id, recoveryQuizStorageKey, startRecoveryQuiz]);
-
-  const speakMessage = (text: string) => {
-    if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
-    const utterance = new SpeechSynthesisUtterance(text.replace(/```[\s\S]*?```/g, "").replace(/[#>*_`]/g, " "));
-    utterance.rate = personaProfile.pace === "slow" ? 0.9 : personaProfile.pace === "fast" ? 1.08 : 1;
-    utterance.pitch = 1;
-    window.speechSynthesis.cancel();
-    window.speechSynthesis.speak(utterance);
-  };
-
-  const startVoiceInput = () => {
-    const SpeechRecognitionCtor = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SpeechRecognitionCtor) {
-      setClipboardHint("Voice input is not available in this browser.");
-      return;
-    }
-
-    const recognition = new SpeechRecognitionCtor();
-    recognition.lang = "en-US";
-    recognition.interimResults = true;
-    recognition.onresult = (event: any) => {
-      const transcript = Array.from(event.results)
-        .map((result: any) => result[0]?.transcript || "")
-        .join("");
-      setInput(transcript.trim());
-    };
-    recognition.onend = () => {
-      setIsListening(false);
-      recognitionRef.current = null;
-    };
-    recognition.onerror = () => {
-      setIsListening(false);
-      recognitionRef.current = null;
-      setClipboardHint("Voice input failed. You can still type or paste material.");
-    };
-    recognitionRef.current = recognition;
-    setIsListening(true);
-    recognition.start();
-  };
-
-  const stopVoiceInput = () => {
-    if (recognitionRef.current) {
-      recognitionRef.current.stop();
-      recognitionRef.current = null;
-    }
-    setIsListening(false);
-  };
 
   const handleSend = async ({ uploadMode, forcedMessage }: SendOptions = {}) => {
     if (!input.trim() && pendingAttachments.length === 0 && !forcedMessage) return;
@@ -388,23 +282,22 @@ export function ChatPanel({ module, startRecoveryQuiz = false }: ChatPanelProps)
             ? "Teach me from the uploaded files. Explain clearly in simple steps and include one short check question at the end."
             : uploadMode === "revise"
               ? "Help me revise from the uploaded files. Give me a concise revision summary with key points and common mistakes to avoid."
-                : sessionMode === "oral-quiz"
-                  ? `Run an oral quiz on ${module.name}. Ask one short question at a time and wait for my answer.`
-                  : sessionMode === "roleplay"
-                    ? `Start a roleplay that helps me practice ${module.name} in a realistic scenario.`
-                    : sessionMode === "interview"
-                      ? `Interview me like an examiner on ${module.name}. Ask probing questions and wait for my response.`
-                      : input.trim() || (attachmentsToSend.length > 0 ? `Uploaded ${attachmentsToSend.length} file(s)` : "");
+              : sessionMode === "roleplay"
+                ? `Start a roleplay that helps me practice ${module.name} in a realistic scenario.`
+                : sessionMode === "interview"
+                  ? `Interview me like an examiner on ${module.name}. Ask probing questions and wait for my response.`
+                  : input.trim() || (attachmentsToSend.length > 0 ? `Uploaded ${attachmentsToSend.length} file(s)` : "");
 
     const userMsg: ChatMessage = {
-      id: `msg-${Date.now()}`,
+      id: crypto.randomUUID(),
       role: "student",
       content: userContent,
       timestamp: new Date(),
       attachments: attachmentsToSend.length > 0 ? attachmentsToSend : undefined,
     };
     setMessages((previous) => [...previous, userMsg]);
-    updateModuleProgress(module.id, { lastStudied: new Date() });
+    void appendChatMessages(module.id, [userMsg]);
+    void updateModuleProgress(module.id, { lastStudied: new Date() });
 
     const detectedPatterns = detectErrorPatternsFromMessage(userMsg.content);
     const currentPatternMap = new Map<ErrorPatternType, number>();
@@ -479,7 +372,7 @@ export function ChatPanel({ module, startRecoveryQuiz = false }: ChatPanelProps)
       }
 
       const aiMsg: ChatMessage = {
-        id: `msg-${Date.now() + 1}`,
+        id: crypto.randomUUID(),
         role: "ai",
         content: aiContent,
         timestamp: new Date(),
@@ -487,16 +380,14 @@ export function ChatPanel({ module, startRecoveryQuiz = false }: ChatPanelProps)
           confidence: payload.confidence,
           confidenceReason: payload.confidenceReason,
           citations: payload.citations,
-          mode: uploadMode || (voiceEnabled ? "voice" : "chat"),
+          mode: uploadMode || "chat",
         },
       };
       setMessages((previous) => [...previous, aiMsg]);
-      if (voiceEnabled) {
-        speakMessage(aiContent);
-      }
+      await appendChatMessages(module.id, [aiMsg]);
     } catch {
       const aiMsg: ChatMessage = {
-        id: `msg-${Date.now() + 1}`,
+        id: crypto.randomUUID(),
         role: "ai",
         content: "I couldn't reach the AI service right now. Please try again in a moment.",
         timestamp: new Date(),
@@ -508,6 +399,7 @@ export function ChatPanel({ module, startRecoveryQuiz = false }: ChatPanelProps)
         },
       };
       setMessages((previous) => [...previous, aiMsg]);
+      await appendChatMessages(module.id, [aiMsg]);
     } finally {
       setIsTyping(false);
     }
@@ -520,21 +412,23 @@ export function ChatPanel({ module, startRecoveryQuiz = false }: ChatPanelProps)
 
     const createdTopics = Object.values(extractedSubtopics).flat().slice(0, 6);
     if (createdTopics.length > 0) {
+      const materialMessage: ChatMessage = {
+        id: crypto.randomUUID(),
+        role: "ai",
+        content: `I parsed your new material and extracted these study subtopics: ${createdTopics.join(", ")}. They are now part of your review system.`,
+        timestamp: new Date(),
+        meta: {
+          confidence: "high",
+          confidenceReason: "These subtopics came directly from the uploaded material analysis pipeline.",
+          citations: attachments.slice(0, 2).map((attachment) => ({ sourceName: attachment.name })),
+          mode: "material-analysis",
+        },
+      };
       setMessages((previous) => [
         ...previous,
-        {
-          id: `material-${Date.now()}`,
-          role: "ai",
-          content: `I parsed your new material and extracted these study subtopics: ${createdTopics.join(", ")}. They are now part of your review system.`,
-          timestamp: new Date(),
-          meta: {
-            confidence: "high",
-            confidenceReason: "These subtopics came directly from the uploaded material analysis pipeline.",
-            citations: attachments.slice(0, 2).map((attachment) => ({ sourceName: attachment.name })),
-            mode: "material-analysis",
-          },
-        },
+        materialMessage,
       ]);
+      await appendChatMessages(module.id, [materialMessage]);
     }
   };
 
@@ -602,75 +496,143 @@ export function ChatPanel({ module, startRecoveryQuiz = false }: ChatPanelProps)
         ? "Needed another guided pass in the due-today queue"
         : "Missed during the due-today queue review";
 
-    recordReviewOutcome(module.id, topDueReview.subtopicId, outcome, note);
+    void recordReviewOutcome(module.id, topDueReview.subtopicId, outcome, note);
+    const reviewMessage: ChatMessage = {
+      id: crypto.randomUUID(),
+      role: "ai",
+      content: outcome === "mastered"
+        ? `Nice work. I marked **${topDueReview.subtopicName}** as mastered for today's review and rescheduled it further out.`
+        : outcome === "struggled"
+          ? `Logged **${topDueReview.subtopicName}** as struggled. It will come back tomorrow and stays in your weak-spot history.`
+          : `Logged **${topDueReview.subtopicName}** as missed. It now has a higher priority in your due-today queue and mistake review history.`,
+      timestamp: new Date(),
+      meta: {
+        confidence: "high",
+        confidenceReason: "This status comes directly from your explicit review outcome.",
+        citations: [{ sourceName: topDueReview.moduleName }],
+        mode: "review",
+      },
+    };
     setMessages((previous) => [
       ...previous,
-      {
-        id: `review-${Date.now()}`,
-        role: "ai",
-        content: outcome === "mastered"
-          ? `Nice work. I marked **${topDueReview.subtopicName}** as mastered for today's review and rescheduled it further out.`
-          : outcome === "struggled"
-            ? `Logged **${topDueReview.subtopicName}** as struggled. It will come back tomorrow and stays in your weak-spot history.`
-            : `Logged **${topDueReview.subtopicName}** as missed. It now has a higher priority in your due-today queue and mistake review history.`,
-        timestamp: new Date(),
-        meta: {
-          confidence: "high",
-          confidenceReason: "This status comes directly from your explicit review outcome.",
-          citations: [{ sourceName: topDueReview.moduleName }],
-          mode: "review",
-        },
-      },
+      reviewMessage,
     ]);
+    void appendChatMessages(module.id, [reviewMessage]);
   };
 
   return (
-    <div className="flex flex-col h-full bg-[var(--background)]">
-      <div className="px-5 pt-4 pb-3 border-b border-[var(--border)] bg-[var(--card)]">
-        <div className="relative rounded-2xl overflow-hidden border border-[var(--border)] mb-3">
-          <img src={tutorStoryImage} alt="AI tutor story banner" className="w-full h-20 object-cover" />
-          <div className="absolute inset-0 bg-gradient-to-r from-black/55 via-black/20 to-transparent" />
-          <div className="absolute inset-0 px-4 py-3 flex items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: "linear-gradient(135deg, #FF7541, #B352D7)" }}>
+    <div className="flex h-full flex-col bg-transparent">
+      <div className="border-b border-white/8 bg-black/8 px-5 pb-4 pt-4 backdrop-blur-xl">
+        <div className="grid gap-3 xl:grid-cols-[minmax(0,1.14fr)_minmax(320px,0.86fr)]">
+          <motion.div
+            className="rounded-[1.6rem] border border-white/10 bg-white/6 p-4 backdrop-blur-sm"
+            initial={{ opacity: 0, y: 14 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 bg-white/10">
                 <Sparkles className="w-4 h-4 text-white" />
               </div>
-              <div>
-                <h3 className="text-white">AI Tutor</h3>
-                <p className="text-white/80" style={{ fontSize: "0.7rem" }}>
-                  Evidence-backed coaching · citations · review control
-                </p>
+                <div>
+                  <p className="text-muted-foreground" style={{ fontSize: "0.64rem", letterSpacing: "0.12em", textTransform: "uppercase" }}>
+                    Workspace coach
+                  </p>
+                  <h3 className="text-foreground">AI Tutor</h3>
+                  <p className="text-muted-foreground" style={{ fontSize: "0.7rem", lineHeight: "1.5" }}>
+                    Evidence-backed replies, review controls, and grounded sources stay in one place.
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="rounded-lg border border-white/10 bg-black/16 px-2.5 py-1 text-foreground" style={{ fontSize: "0.65rem" }}>
+                  Streak {streakDays}d
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setShowPersonaEditor((previous) => !previous)}
+                  className="rounded-lg border border-white/10 bg-black/16 px-2.5 py-1 text-foreground cursor-pointer"
+                  style={{ fontSize: "0.65rem" }}
+                >
+                  Persona
+                </button>
               </div>
             </div>
-            <div className="flex items-center gap-2">
-              <span className="px-2 py-1 rounded-lg bg-black/25 border border-white/20 text-white" style={{ fontSize: "0.65rem" }}>
-                Streak {streakDays}d
-              </span>
-              <button
-                type="button"
-                onClick={() => setVoiceEnabled((previous) => !previous)}
-                className="text-white px-2 py-1 rounded-lg bg-black/25 border border-white/20"
-                style={{ fontSize: "0.65rem" }}
-              >
-                {voiceEnabled ? "Voice on" : "Voice off"}
-              </button>
-              <button
-                type="button"
-                onClick={() => setShowPersonaEditor((previous) => !previous)}
-                className="text-white px-2 py-1 rounded-lg bg-black/25 border border-white/20"
-                style={{ fontSize: "0.65rem" }}
-              >
-                Persona
-              </button>
+          </motion.div>
+
+          <motion.div
+            className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1"
+            initial={{ opacity: 0, y: 14 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.04, duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
+          >
+            <div className="rounded-[1.5rem] border border-white/10 bg-white/6 p-3 backdrop-blur-sm">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-muted-foreground" style={{ fontSize: "0.64rem", letterSpacing: "0.12em", textTransform: "uppercase" }}>
+                    Daily rhythm
+                  </p>
+                  <p className="mt-1 text-foreground" style={{ fontSize: "0.74rem", lineHeight: "1.5" }}>
+                    {checkedInToday
+                      ? `Checked in today${module.lastCheckInAt ? ` at ${new Date(module.lastCheckInAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : ""}.`
+                      : "Mark today as active to keep this module inside your current study loop."}
+                  </p>
+                  {nextOpenPlanBlock && (
+                    <p className="mt-2 text-muted-foreground" style={{ fontSize: "0.66rem", lineHeight: "1.45" }}>
+                      Next block: {nextOpenPlanBlock.title} ({nextOpenPlanBlock.minutes} mins)
+                    </p>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void markModuleCheckIn(module.id)}
+                  disabled={checkedInToday}
+                  className="rounded-lg px-3 py-1.5 text-white disabled:opacity-40 cursor-pointer"
+                  style={{ fontSize: "0.66rem", background: "linear-gradient(135deg, #d96a42, #8c58c7)" }}
+                >
+                  {checkedInToday ? "Checked" : "Check in"}
+                </button>
+              </div>
             </div>
-          </div>
+
+            <div className="rounded-[1.5rem] border border-white/10 bg-white/6 p-3 backdrop-blur-sm">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-muted-foreground" style={{ fontSize: "0.64rem", letterSpacing: "0.12em", textTransform: "uppercase" }}>
+                    Trust signal
+                  </p>
+                  <p className="mt-1 text-foreground" style={{ fontSize: "0.74rem", lineHeight: "1.5" }}>
+                    {latestAiMessage
+                      ? needsTrustNudge
+                        ? "Latest answer needs grounding before you rely on it."
+                        : `Latest answer is grounded with ${latestAiCitations.length} source reference${latestAiCitations.length === 1 ? "" : "s"}.`
+                      : "Trust indicators appear after the coach replies."}
+                  </p>
+                </div>
+                <span
+                  className="rounded-lg px-2 py-1"
+                  style={{
+                    fontSize: "0.62rem",
+                    backgroundColor: needsTrustNudge ? "rgba(239,68,68,0.12)" : "rgba(16,185,129,0.12)",
+                    color: needsTrustNudge ? "#ef4444" : "#10b981",
+                  }}
+                >
+                  {needsTrustNudge ? "Needs grounding" : "Grounded"}
+                </span>
+              </div>
+            </div>
+          </motion.div>
         </div>
 
         {topDueReview && (
-          <div className="rounded-2xl border border-[var(--border)] bg-[var(--background)] p-3">
+          <div className="mt-3 rounded-[1.5rem] border border-white/10 bg-white/6 p-3 backdrop-blur-sm">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <p className="text-foreground" style={{ fontSize: "0.82rem" }}>
+                <p className="text-muted-foreground" style={{ fontSize: "0.64rem", letterSpacing: "0.12em", textTransform: "uppercase" }}>
+                  Due queue
+                </p>
+                <p className="mt-1 text-foreground" style={{ fontSize: "0.82rem" }}>
                   Due today: <span style={{ color: module.color }}>{topDueReview.subtopicName}</span>
                 </p>
                 <p className="text-muted-foreground" style={{ fontSize: "0.7rem", lineHeight: "1.45" }}>
@@ -688,7 +650,7 @@ export function ChatPanel({ module, startRecoveryQuiz = false }: ChatPanelProps)
       </div>
 
       {showPersonaEditor && (
-        <div className="px-5 py-3 border-b border-[var(--border)] bg-[var(--card)]">
+        <div className="px-5 py-3 border-b border-[var(--border)] bg-[var(--card)]/92">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
             <label className="text-muted-foreground" style={{ fontSize: "0.65rem" }}>
               Explanation
@@ -727,15 +689,15 @@ export function ChatPanel({ module, startRecoveryQuiz = false }: ChatPanelProps)
         </div>
       )}
 
-      <div ref={scrollRef} className="flex-1 overflow-y-auto p-5 space-y-4">
-        <div className="rounded-xl px-4 py-2.5 text-center" style={{ background: "linear-gradient(135deg, rgba(255,117,65,0.08), rgba(179,82,215,0.08))", border: "1px solid rgba(255,117,65,0.1)" }}>
+      <div ref={scrollRef} className="flex-1 space-y-4 overflow-y-auto px-5 py-5">
+        <div className="rounded-[1.3rem] border border-white/10 bg-white/4 px-4 py-2.5 text-center backdrop-blur-sm">
           <p className="text-muted-foreground" style={{ fontSize: "0.75rem" }}>
             Upload notes, paste long text, or paste screenshots directly here. New material feeds subtopic extraction and the due-today queue.
           </p>
         </div>
 
         {clipboardHint && (
-          <div className="rounded-xl px-4 py-2.5 bg-[var(--card)] border border-[var(--border)] flex items-center justify-between gap-3">
+          <div className="flex items-center justify-between gap-3 rounded-[1.2rem] border border-white/10 bg-white/6 px-4 py-2.5 backdrop-blur-sm">
             <p className="text-muted-foreground" style={{ fontSize: "0.72rem" }}>{clipboardHint}</p>
             <button onClick={() => setClipboardHint(null)} className="w-6 h-6 rounded-md hover:bg-[var(--accent)] flex items-center justify-center cursor-pointer">
               <X className="w-3 h-3 text-muted-foreground" />
@@ -761,7 +723,7 @@ export function ChatPanel({ module, startRecoveryQuiz = false }: ChatPanelProps)
                 {message.role === "ai" ? <Bot className="w-4 h-4 text-white" /> : <User className="w-4 h-4 text-white" />}
               </div>
               <div className={`max-w-[82%] ${message.role === "student" ? "text-right" : ""}`}>
-                <div className={`rounded-2xl px-4 py-3 ${message.role === "ai" ? "bg-[var(--card)] text-foreground border border-[var(--border)]" : "text-white"}`} style={message.role === "student" ? { background: `linear-gradient(135deg, ${module.color}, ${module.color}cc)` } : {}}>
+                <div className={`rounded-[1.35rem] px-4 py-3 ${message.role === "ai" ? "bg-[var(--card)] text-foreground border border-[var(--border)] shadow-[0_16px_40px_rgba(0,0,0,0.06)]" : "text-white shadow-[0_16px_40px_rgba(0,0,0,0.12)]"}`} style={message.role === "student" ? { background: `linear-gradient(135deg, ${module.color}, ${module.color}cc)` } : {}}>
                   {message.role === "ai" ? (
                     <Suspense fallback={<p style={{ fontSize: "0.875rem", lineHeight: "1.6", textAlign: "left" }}>{message.content}</p>}>
                       <MarkdownMessage content={message.content} />
@@ -781,12 +743,6 @@ export function ChatPanel({ module, startRecoveryQuiz = false }: ChatPanelProps)
                         <span className="px-2 py-1 rounded-lg bg-[var(--accent)] text-muted-foreground" style={{ fontSize: "0.62rem" }}>
                           {message.meta.mode}
                         </span>
-                      )}
-                      {voiceEnabled && (
-                        <button onClick={() => speakMessage(message.content)} className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-[var(--accent)] text-muted-foreground cursor-pointer" style={{ fontSize: "0.62rem" }}>
-                          <Volume2 className="w-3 h-3" />
-                          Read aloud
-                        </button>
                       )}
                     </div>
                     {message.meta.confidenceReason && (
@@ -873,8 +829,26 @@ export function ChatPanel({ module, startRecoveryQuiz = false }: ChatPanelProps)
         </div>
       )}
 
-      <div className="px-5 py-4 border-t border-[var(--border)] bg-[var(--card)]">
-        <div className="flex items-end gap-2">
+      <div className="border-t border-white/8 bg-black/8 px-5 py-4 backdrop-blur-xl">
+        <div className="mb-3 flex flex-wrap gap-2">
+          {([
+            { id: "coach", label: "Coach" },
+            { id: "roleplay", label: "Roleplay" },
+            { id: "interview", label: "Interview" },
+          ] as Array<{ id: SessionMode; label: string }>).map((mode) => (
+            <button
+              key={mode.id}
+              type="button"
+              onClick={() => setSessionMode(mode.id)}
+              className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${sessionMode === mode.id ? "text-white" : "bg-[var(--accent)] text-muted-foreground hover:text-foreground"}`}
+              style={sessionMode === mode.id ? { background: "linear-gradient(135deg, #d96a42, #8c58c7)", fontSize: "0.7rem" } : { fontSize: "0.7rem" }}
+            >
+              {mode.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="flex items-end gap-2 rounded-[1.35rem] border border-white/10 bg-white/6 p-2 backdrop-blur-sm">
           <button onClick={() => setShowUpload(true)} className="w-10 h-10 rounded-xl bg-[var(--accent)] hover:bg-[var(--muted)] flex items-center justify-center transition-colors shrink-0 cursor-pointer" title="Upload file">
             <Paperclip className="w-4 h-4 text-muted-foreground" />
           </button>
@@ -930,34 +904,12 @@ export function ChatPanel({ module, startRecoveryQuiz = false }: ChatPanelProps)
             onPaste={(event) => { void handleClipboardPaste(event); }}
             placeholder="Ask a question, or paste long notes/screenshots directly here..."
             rows={1}
-            className="flex-1 resize-none bg-[var(--input-background)] rounded-xl px-4 py-3 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+            className="flex-1 resize-none rounded-[1.2rem] bg-[var(--input-background)] px-4 py-3 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
             style={{ fontSize: "0.875rem", minHeight: "44px", maxHeight: "120px" }}
           />
-          <button onClick={isListening ? stopVoiceInput : startVoiceInput} className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all shrink-0 cursor-pointer ${isListening ? "bg-red-500" : "bg-[var(--accent)] hover:bg-[var(--muted)]"}`} title="Voice input">
-            <Mic className={`w-4 h-4 ${isListening ? "text-white" : "text-muted-foreground"}`} />
-          </button>
-          <button onClick={() => void handleSend()} disabled={(!input.trim() && pendingAttachments.length === 0) || isTyping} className="w-10 h-10 rounded-xl flex items-center justify-center text-white disabled:opacity-30 transition-all shrink-0 cursor-pointer" style={{ background: "linear-gradient(135deg, #FF7541, #B352D7)" }}>
+          <button onClick={() => void handleSend()} disabled={(!input.trim() && pendingAttachments.length === 0) || isTyping} className="w-10 h-10 rounded-xl flex items-center justify-center text-white disabled:opacity-30 transition-all shrink-0 cursor-pointer" style={{ background: "linear-gradient(135deg, #d96a42, #8c58c7)" }}>
             {pendingAttachments.length > 0 ? <CheckCircle2 className="w-4 h-4" /> : <Send className="w-4 h-4" />}
           </button>
-        </div>
-
-        <div className="flex flex-wrap gap-2 mt-3">
-          {([
-            { id: "coach", label: "Coach" },
-            { id: "oral-quiz", label: "Oral quiz" },
-            { id: "roleplay", label: "Roleplay" },
-            { id: "interview", label: "Interview" },
-          ] as Array<{ id: SessionMode; label: string }>).map((mode) => (
-            <button
-              key={mode.id}
-              type="button"
-              onClick={() => setSessionMode(mode.id)}
-              className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${sessionMode === mode.id ? "text-white" : "bg-[var(--accent)] text-muted-foreground hover:text-foreground"}`}
-              style={sessionMode === mode.id ? { background: "linear-gradient(135deg, #FF7541, #B352D7)", fontSize: "0.7rem" } : { fontSize: "0.7rem" }}
-            >
-              {mode.label}
-            </button>
-          ))}
         </div>
       </div>
 

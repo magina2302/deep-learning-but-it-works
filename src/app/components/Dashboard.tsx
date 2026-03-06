@@ -10,30 +10,40 @@ import { DeleteModuleModal } from "./DeleteModuleModal";
 import { useModules } from "./ModulesContext";
 import { useAuth } from "./AuthContext";
 import { useEffect, useState } from "react";
+import { motion } from "motion/react";
 
-const makeStoryImage = (title: string, colorA: string, colorB: string) =>
+const makeStoryImage = (colorA: string, colorB: string, accent: string) =>
   `data:image/svg+xml;utf8,${encodeURIComponent(`
     <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 700'>
       <defs>
         <linearGradient id='bg' x1='0' y1='0' x2='1' y2='1'>
-          <stop offset='0%' stop-color='${colorA}' stop-opacity='0.85'/>
-          <stop offset='100%' stop-color='${colorB}' stop-opacity='0.95'/>
+          <stop offset='0%' stop-color='${colorA}' stop-opacity='0.94'/>
+          <stop offset='100%' stop-color='${colorB}' stop-opacity='0.98'/>
+        </linearGradient>
+        <linearGradient id='wave' x1='0' y1='0' x2='1' y2='0'>
+          <stop offset='0%' stop-color='white' stop-opacity='0.08'/>
+          <stop offset='100%' stop-color='${accent}' stop-opacity='0.26'/>
         </linearGradient>
       </defs>
       <rect width='1200' height='700' fill='url(#bg)'/>
-      <circle cx='960' cy='140' r='240' fill='white' opacity='0.10'/>
-      <circle cx='260' cy='640' r='320' fill='white' opacity='0.08'/>
-      <path d='M0 520 C 180 440, 340 610, 520 520 C 700 430, 860 620, 1200 500 L1200 700 L0 700 Z' fill='white' opacity='0.16'/>
-      <text x='72' y='120' font-family='Inter, Arial, sans-serif' font-size='58' font-weight='700' fill='white'>${title}</text>
-      <text x='72' y='178' font-family='Inter, Arial, sans-serif' font-size='28' font-weight='400' fill='white' opacity='0.9'>Small sessions. Compounding mastery.</text>
+      <circle cx='930' cy='140' r='250' fill='white' opacity='0.09'/>
+      <circle cx='220' cy='610' r='300' fill='white' opacity='0.05'/>
+      <path d='M0 512 C 160 430, 318 612, 518 518 C 720 420, 882 620, 1200 506 L1200 700 L0 700 Z' fill='white' opacity='0.12'/>
+      <path d='M90 188 C 246 126, 348 302, 516 254 C 700 204, 792 110, 1034 160' stroke='url(#wave)' stroke-width='14' fill='none' stroke-linecap='round'/>
+      <path d='M182 300 C 368 248, 422 418, 620 392 C 824 366, 898 246, 1100 290' stroke='white' stroke-opacity='0.16' stroke-width='8' fill='none' stroke-linecap='round'/>
+      <g opacity='0.18'>
+        <rect x='92' y='120' width='148' height='6' rx='3' fill='white'/>
+        <rect x='92' y='142' width='104' height='6' rx='3' fill='white'/>
+        <rect x='92' y='164' width='184' height='6' rx='3' fill='white'/>
+      </g>
     </svg>
   `)}`;
 
-const heroImage = makeStoryImage("Build Depth Daily", "#FF7541", "#6129CC");
+const heroImage = makeStoryImage("#25134f", "#070d1b", "#ff7541");
 
 export function Dashboard() {
   const navigate = useNavigate();
-  const { modules, addModule, deleteModule } = useModules();
+  const { modules, addModule, deleteModule, recordCoachNudge } = useModules();
   const { user, logout } = useAuth();
   const [activeTab, setActiveTab] = useState<"overview" | "analytics">("overview");
   const [showAddModal, setShowAddModal] = useState(false);
@@ -46,12 +56,27 @@ export function Dashboard() {
     navigate("/login");
   };
 
+  const openModule = (moduleId: string, action?: string) => {
+    const params = action ? `?action=${action}` : "";
+    navigate(`/module/${moduleId}${params}`, { state: { fromDashboard: true } });
+  };
+
   const totalMastery = modules.length > 0
     ? Math.round(modules.reduce((sum, m) => sum + m.overallMastery, 0) / modules.length)
     : 0;
   const totalCompleted = modules.reduce((sum, m) => sum + m.subtopics.filter((s) => s.completed).length, 0);
   const totalSubtopics = modules.reduce((sum, m) => sum + m.subtopics.length, 0);
   const dueTodayItems = modules.flatMap((moduleItem) => moduleItem.dueToday || []);
+  const focusModule = dueTodayItems.length > 0
+    ? modules.find((moduleItem) => moduleItem.id === dueTodayItems[0].moduleId)
+    : [...modules].sort((left, right) => right.overallMastery - left.overallMastery)[0];
+  const weakestModule = [...modules]
+    .map((moduleItem) => ({ moduleItem, weakCount: getWeakSpots(moduleItem.subtopics).length }))
+    .sort((left, right) => right.weakCount - left.weakCount || left.moduleItem.overallMastery - right.moduleItem.overallMastery)[0]?.moduleItem;
+  const completedPlanBlocks = modules.reduce(
+    (sum, moduleItem) => sum + (moduleItem.weeklyPlan || []).filter((block) => block.isCompleted).length,
+    0,
+  );
 
   const statusConfig: Record<string, { dot: string }> = {
     "on-track": { dot: "#10b981" },
@@ -62,20 +87,28 @@ export function Dashboard() {
   useEffect(() => {
     if (inactivityPromptInitialized || modules.length === 0) return;
 
+    const now = Date.now();
+
     const target = [...modules]
-      .filter((moduleItem) => getDaysInactive(moduleItem.lastStudied) >= 5)
+      .filter((moduleItem) => {
+        if (getDaysInactive(moduleItem.lastStudied) < 5) return false;
+        const lastNudgeAt = moduleItem.accountability?.lastNudgeAt;
+        if (!lastNudgeAt) return true;
+        return now - new Date(lastNudgeAt).getTime() >= 18 * 60 * 60 * 1000;
+      })
       .sort((left, right) => getDaysInactive(right.lastStudied) - getDaysInactive(left.lastStudied))[0];
 
     if (target) {
       setInactivityPromptModule(target);
+      void recordCoachNudge(target.id);
     }
 
     setInactivityPromptInitialized(true);
-  }, [modules, inactivityPromptInitialized]);
+  }, [modules, inactivityPromptInitialized, recordCoachNudge]);
 
   const handleTakeQuizNow = () => {
     if (!inactivityPromptModule) return;
-    navigate(`/module/${inactivityPromptModule.id}?action=quiz-recovery`);
+    openModule(inactivityPromptModule.id, "quiz-recovery");
     setInactivityPromptModule(null);
   };
 
@@ -83,121 +116,208 @@ export function Dashboard() {
     setInactivityPromptModule(null);
   };
 
-  const storyChapters = [
-    {
-      title: "Observe",
-      description: "Scan your current trajectory and focus modules that need intention.",
-      metric: `${modules.length} active modules`,
-      image: makeStoryImage("Observe", "#FF7541", "#DE6AE4"),
-    },
-    {
-      title: "Practice",
-      description: "Move concepts into memory with short, consistent, contextual drills.",
-      metric: `${totalCompleted}/${totalSubtopics || 0} concepts completed`,
-      image: makeStoryImage("Practice", "#DE6AE4", "#6129CC"),
-    },
-    {
-      title: "Reflect",
-      description: "Use weak-spot signals to choose your next best action, every day.",
-      metric: `${totalMastery}% current mastery`,
-      image: makeStoryImage("Reflect", "#18275C", "#B352D7"),
-    },
-  ];
-
   return (
-    <div className="min-h-full bg-[var(--background)]">
-      <div className="max-w-7xl mx-auto px-6 md:px-10 py-8 md:py-10">
-        <div className="rounded-3xl border border-[var(--border)] bg-[var(--card)] overflow-hidden">
-          <div className="grid grid-cols-1 lg:grid-cols-[1.1fr_1fr]">
-            <div className="p-6 md:p-8 lg:p-10">
-              <div className="flex items-center justify-between mb-6">
-                <div className="flex items-center gap-4">
-                  <div
-                    className="w-12 h-12 rounded-2xl flex items-center justify-center"
-                    style={{ background: "linear-gradient(135deg, #FF7541, #B352D7)" }}
-                  >
-                    <GraduationCap className="w-6 h-6 text-white" />
-                  </div>
-                  <div>
-                    <h1>Welcome back, {user?.username || "Learner"}</h1>
-                    <p className="text-muted-foreground" style={{ fontSize: "0.875rem" }}>
-                      Your learning narrative continues today
-                    </p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <ThemeSwitcher />
-                  <button
-                    onClick={handleLogout}
-                    className="w-9 h-9 rounded-xl bg-[var(--accent)] hover:bg-[var(--muted)] flex items-center justify-center transition-all cursor-pointer"
-                    title="Log out"
-                  >
-                    <LogOut className="w-4 h-4 text-muted-foreground" />
-                  </button>
-                </div>
+    <div className="min-h-full" style={{ backgroundImage: "var(--page-background)" }}>
+      <section className="relative overflow-hidden border-b border-white/8">
+        <motion.img
+          src={heroImage}
+          alt="Gradify study atmosphere"
+          className="absolute inset-0 h-full w-full object-cover opacity-45"
+          initial={{ scale: 1.06, opacity: 0.7 }}
+          animate={{ scale: 1, opacity: 1 }}
+          transition={{ duration: 1.1, ease: [0.22, 1, 0.36, 1] }}
+        />
+        <div className="absolute inset-0" style={{ background: "linear-gradient(120deg, rgba(8,12,26,0.92) 0%, rgba(8,12,26,0.76) 44%, rgba(8,12,26,0.48) 100%)" }} />
+        <div
+          className="absolute inset-0 opacity-60"
+          style={{
+            backgroundImage: "linear-gradient(to right, var(--texture-grid) 1px, transparent 1px), linear-gradient(to bottom, var(--texture-grid) 1px, transparent 1px)",
+            backgroundSize: "120px 120px",
+            maskImage: "linear-gradient(to bottom, rgba(0,0,0,1), rgba(0,0,0,0.3))",
+          }}
+        />
+        <div className="relative z-10 flex flex-col">
+          <div className="mx-auto flex w-full max-w-7xl items-center justify-between px-6 pt-6 md:px-10">
+            <div className="flex items-center gap-3 text-white">
+              <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-white/15 bg-white/8 backdrop-blur-sm shadow-[0_18px_50px_rgba(0,0,0,0.18)]">
+                <GraduationCap className="h-5 w-5" />
               </div>
-
-              <p className="text-muted-foreground mb-6 max-w-xl" style={{ fontSize: "0.9rem", lineHeight: "1.6" }}>
-                Think in chapters, not cramming: revisit weak spots, stack small wins, and let momentum do the heavy lifting.
-              </p>
-
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                {[
-                  { icon: TrendingUp, label: "Overall Mastery", value: `${totalMastery}%`, color: "#FF7541" },
-                  { icon: BookOpen, label: "Concepts Done", value: `${totalCompleted}/${totalSubtopics}`, color: "#B352D7" },
-                  { icon: Brain, label: "Active Modules", value: `${modules.length}`, color: "#6129CC" },
-                ].map((stat) => (
-                  <div key={stat.label} className="bg-[var(--background)] border border-[var(--border)] rounded-2xl p-4">
-                    <div className="flex items-center gap-2 mb-2">
-                      <stat.icon className="w-4 h-4" style={{ color: stat.color }} />
-                      <span className="text-muted-foreground" style={{ fontSize: "0.75rem" }}>{stat.label}</span>
-                    </div>
-                    <p style={{ fontSize: "1.5rem" }} className="text-foreground">{stat.value}</p>
-                  </div>
-                ))}
+              <div>
+                <p className="text-white/70" style={{ fontSize: "0.72rem", letterSpacing: "0.2em", textTransform: "uppercase" }}>
+                  Gradify
+                </p>
+                <p className="text-white/92" style={{ fontSize: "0.86rem" }}>
+                  {user?.username ? `${user.username}'s evidence-backed dashboard` : "Evidence-backed study coach"}
+                </p>
               </div>
             </div>
-
-            <div className="relative min-h-[260px] lg:min-h-full">
-              <img src={heroImage} alt="Learning momentum story" className="w-full h-full object-cover" />
-              <div className="absolute inset-0 bg-gradient-to-t from-black/35 via-transparent to-transparent" />
-              <div className="absolute bottom-5 left-5 right-5">
-                <div className="rounded-2xl bg-black/25 backdrop-blur-sm border border-white/20 p-4">
-                  <p className="text-white" style={{ fontSize: "0.82rem", lineHeight: "1.5" }}>
-                    "Discipline is design. Repeat what works, and the work compounds."
-                  </p>
-                </div>
-              </div>
+            <div className="flex items-center gap-2">
+              <ThemeSwitcher />
+              <button
+                onClick={handleLogout}
+                className="flex h-10 w-10 items-center justify-center rounded-2xl border border-white/12 bg-white/6 text-white/78 backdrop-blur-sm transition-all hover:bg-white/10 cursor-pointer"
+                title="Log out"
+              >
+                <LogOut className="h-4 w-4" />
+              </button>
             </div>
           </div>
-        </div>
-      </div>
 
-      <div className="max-w-7xl mx-auto px-6 md:px-10">
-        <div className="mb-6">
-          <h2 className="mb-1">Today&apos;s Story Arc</h2>
-          <p className="text-muted-foreground" style={{ fontSize: "0.82rem" }}>
-            A clean cycle to keep your learning cadence intentional.
-          </p>
-          <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-4">
-            {storyChapters.map((chapter) => (
-              <div key={chapter.title} className="rounded-2xl border border-[var(--border)] bg-[var(--card)] overflow-hidden">
-                <img src={chapter.image} alt={`${chapter.title} chapter illustration`} className="w-full h-24 object-cover" />
-                <div className="p-4">
-                  <div className="flex items-center justify-between mb-1">
-                    <h3>{chapter.title}</h3>
-                    <span className="text-muted-foreground" style={{ fontSize: "0.68rem" }}>{chapter.metric}</span>
-                  </div>
-                  <p className="text-muted-foreground" style={{ fontSize: "0.75rem", lineHeight: "1.5" }}>
-                    {chapter.description}
+          <div className="mx-auto flex w-full max-w-7xl flex-1 items-center px-6 pb-12 pt-10 md:px-10 md:pb-16">
+            <motion.div
+              className="grid w-full gap-6 lg:grid-cols-[1.15fr_0.85fr]"
+              initial={{ opacity: 0, y: 28 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.75, ease: [0.22, 1, 0.36, 1] }}
+            >
+              <div className="rounded-[2rem] border border-white/12 bg-white/6 p-6 text-white shadow-[0_24px_70px_rgba(0,0,0,0.22)] backdrop-blur-xl md:p-8">
+                <div className="mb-3 text-white/72" style={{ fontSize: "0.76rem", letterSpacing: "0.18em", textTransform: "uppercase" }}>
+                  Today
+                </div>
+                <h1 className="max-w-2xl text-white" style={{ fontSize: "clamp(1.8rem, 3.5vw, 2.8rem)", lineHeight: "1.04", fontWeight: 700 }}>
+                  {user?.username ? `Welcome back, ${user.username}.` : "Welcome back."}
+                </h1>
+                <p className="mt-3 max-w-2xl text-white/74" style={{ fontSize: "0.98rem", lineHeight: "1.75" }}>
+                  {dueTodayItems.length > 0
+                    ? `${dueTodayItems.length} reviews are waiting. Start with ${dueTodayItems[0].subtopicName} or jump into your focus module.`
+                    : "Nothing urgent is due right now. Use this session to push a weak area forward or add a new module."}
+                </p>
+                <div className="mt-6 grid gap-3 sm:grid-cols-3">
+                  {[
+                    { label: "Due now", value: `${dueTodayItems.length}` },
+                    { label: "Overall mastery", value: `${totalMastery}%` },
+                    { label: "Modules", value: `${modules.length}` },
+                  ].map((item) => (
+                    <div key={item.label} className="rounded-2xl border border-white/10 bg-black/16 px-4 py-3">
+                      <p className="text-white/58" style={{ fontSize: "0.66rem", letterSpacing: "0.12em", textTransform: "uppercase" }}>{item.label}</p>
+                      <p className="mt-1 text-white" style={{ fontSize: "1.7rem", lineHeight: "1.1" }}>{item.value}</p>
+                    </div>
+                  ))}
+                </div>
+                <motion.div
+                  className="mt-8 flex flex-wrap gap-3"
+                  initial={{ opacity: 0, y: 14 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.15, duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
+                >
+                  <button
+                    onClick={() => focusModule ? openModule(focusModule.id) : setShowAddModal(true)}
+                    className="rounded-2xl px-5 py-3 text-white cursor-pointer"
+                    style={{ background: "linear-gradient(135deg, #FF7541, #DE6AE4)", fontSize: "0.9rem" }}
+                  >
+                    {focusModule
+                      ? dueTodayItems.length > 0
+                        ? `Review ${dueTodayItems[0].subtopicName}`
+                        : `Resume ${focusModule.name}`
+                      : "Add your first module"}
+                  </button>
+                  <button
+                    onClick={() => setShowAddModal(true)}
+                    className="rounded-2xl border border-white/14 bg-white/6 px-5 py-3 text-white/90 backdrop-blur-sm transition-all hover:bg-white/10 cursor-pointer"
+                    style={{ fontSize: "0.9rem" }}
+                  >
+                    Add module
+                  </button>
+                </motion.div>
+              </div>
+
+              <motion.div
+                className="grid gap-4 md:grid-cols-2 lg:grid-cols-1"
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: 0.1, duration: 0.7, ease: [0.22, 1, 0.36, 1] }}
+              >
+                <div className="rounded-[1.8rem] border border-white/10 bg-black/20 p-5 text-white backdrop-blur-xl">
+                  <p className="text-white/66" style={{ fontSize: "0.7rem", letterSpacing: "0.14em", textTransform: "uppercase" }}>
+                    Focus module
                   </p>
+                  <div className="mt-3 flex items-start justify-between gap-4">
+                    <div>
+                      <h3 className="text-white">{focusModule?.name || "No module yet"}</h3>
+                      <p className="mt-1 text-white/72" style={{ fontSize: "0.78rem", lineHeight: "1.6" }}>
+                        {dueTodayItems.length > 0
+                          ? `Top due review: ${dueTodayItems[0].subtopicName}`
+                          : focusModule
+                            ? (focusModule.nextActions?.[0] || "Keep building a review rhythm with one clear next action.")
+                            : "Add a module to unlock your review queue and learning analytics."}
+                      </p>
+                    </div>
+                    {focusModule && (
+                      <button
+                        onClick={() => openModule(focusModule.id)}
+                        className="rounded-xl border border-white/12 bg-white/8 px-3 py-2 text-white/90 transition-colors hover:bg-white/12 cursor-pointer"
+                        style={{ fontSize: "0.72rem" }}
+                      >
+                        Open
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <div className="rounded-[1.8rem] border border-white/10 bg-white/8 p-5 text-white backdrop-blur-xl">
+                  <p className="text-white/66" style={{ fontSize: "0.7rem", letterSpacing: "0.14em", textTransform: "uppercase" }}>
+                    Next move
+                  </p>
+                  <div className="mt-4 space-y-3">
+                    <div className="rounded-2xl border border-white/8 bg-black/18 px-4 py-3">
+                      <p className="text-white/60" style={{ fontSize: "0.66rem", textTransform: "uppercase", letterSpacing: "0.12em" }}>Weak spots</p>
+                      <p className="mt-1 text-white" style={{ fontSize: "1.3rem", lineHeight: "1.2" }}>
+                        {weakestModule ? getWeakSpots(weakestModule.subtopics).length : 0}
+                      </p>
+                      <p className="mt-1 text-white/72" style={{ fontSize: "0.74rem", lineHeight: "1.5" }}>
+                        {weakestModule ? `${weakestModule.name} needs the most attention right now.` : "Add a module to start tracking weak areas."}
+                      </p>
+                    </div>
+                    <div className="rounded-2xl border border-white/8 bg-black/18 px-4 py-3">
+                      <p className="text-white/60" style={{ fontSize: "0.66rem", textTransform: "uppercase", letterSpacing: "0.12em" }}>Plan blocks completed</p>
+                      <p className="mt-1 text-white" style={{ fontSize: "1.3rem", lineHeight: "1.2" }}>{completedPlanBlocks}</p>
+                      <p className="mt-1 text-white/72" style={{ fontSize: "0.74rem", lineHeight: "1.5" }}>
+                        Weekly plan completion is now persistent across refreshes.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </motion.div>
+            </motion.div>
+          </div>
+        </div>
+      </section>
+
+      <div className="max-w-7xl mx-auto px-6 md:px-10 py-12 md:py-16 space-y-14">
+        <motion.section
+          initial={{ opacity: 0, y: 26 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true, amount: 0.35 }}
+          transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
+        >
+          <h2 className="mb-2">Learning Pulse</h2>
+          <p className="max-w-2xl text-muted-foreground" style={{ fontSize: "0.86rem", lineHeight: "1.6" }}>
+            A single read on where your study system stands today: momentum, completion, and whether your plan is being executed.
+          </p>
+          <div className="mt-6 grid grid-cols-1 gap-4 border-y border-white/8 py-5 md:grid-cols-4">
+            {[
+              { icon: TrendingUp, label: "Overall mastery", value: `${totalMastery}%`, color: "#FF7541" },
+              { icon: BookOpen, label: "Concept coverage", value: `${totalCompleted}/${totalSubtopics || 0}`, color: "#B352D7" },
+              { icon: Brain, label: "Active modules", value: `${modules.length}`, color: "#38bdf8" },
+              { icon: Target, label: "Plan blocks done", value: `${completedPlanBlocks}`, color: "#10b981" },
+            ].map((stat) => (
+              <div key={stat.label} className="flex items-start gap-3 md:border-l md:border-white/8 md:pl-5 first:border-l-0 first:pl-0">
+                <stat.icon className="mt-0.5 h-4 w-4 shrink-0" style={{ color: stat.color }} />
+                <div>
+                  <p className="text-muted-foreground" style={{ fontSize: "0.7rem", textTransform: "uppercase", letterSpacing: "0.14em" }}>{stat.label}</p>
+                  <p className="mt-1 text-foreground" style={{ fontSize: "1.8rem", lineHeight: "1.05" }}>{stat.value}</p>
                 </div>
               </div>
             ))}
           </div>
-        </div>
+        </motion.section>
 
-        <div className="mb-6 grid grid-cols-1 lg:grid-cols-[1.15fr_0.85fr] gap-5">
+        <motion.section
+          className="grid grid-cols-1 gap-5 lg:grid-cols-[1.15fr_0.85fr]"
+          initial={{ opacity: 0, y: 26 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true, amount: 0.25 }}
+          transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
+        >
           <div className="rounded-2xl border border-[var(--border)] bg-[var(--card)] p-5">
             <div className="flex items-center justify-between gap-3 mb-3">
               <div>
@@ -219,7 +339,7 @@ export function Dashboard() {
                 {dueTodayItems.slice(0, 4).map((item) => (
                   <button
                     key={`${item.moduleId}-${item.subtopicId}`}
-                    onClick={() => navigate(`/module/${item.moduleId}`)}
+                    onClick={() => openModule(item.moduleId)}
                     className="w-full text-left rounded-xl border border-[var(--border)] bg-[var(--background)] px-4 py-3 hover:border-[var(--muted-foreground)] transition-colors cursor-pointer"
                   >
                     <div className="flex items-center justify-between gap-3 mb-1">
@@ -250,11 +370,18 @@ export function Dashboard() {
               <h3>Coach Notes</h3>
             </div>
             <div className="space-y-2.5">
-              {modules.slice(0, 3).map((moduleItem) => (
+              {[weakestModule, ...modules.filter((moduleItem) => moduleItem.id !== weakestModule?.id)].filter(Boolean).slice(0, 3).map((moduleItem) => (
                 <div key={moduleItem.id} className="rounded-xl bg-[var(--background)] border border-[var(--border)] px-4 py-3">
                   <div className="flex items-center justify-between gap-3 mb-1">
                     <span className="text-foreground" style={{ fontSize: "0.8rem" }}>{moduleItem.name}</span>
-                    <span style={{ fontSize: "0.68rem", color: moduleItem.color }}>{moduleItem.overallMastery}%</span>
+                    <div className="flex items-center gap-2">
+                      <span style={{ fontSize: "0.68rem", color: moduleItem.color }}>{moduleItem.overallMastery}%</span>
+                      {moduleItem.lastCheckInAt && (
+                        <span className="px-2 py-0.5 rounded-lg bg-[var(--accent)] text-muted-foreground" style={{ fontSize: "0.6rem" }}>
+                          Checked in
+                        </span>
+                      )}
+                    </div>
                   </div>
                   <p className="text-muted-foreground" style={{ fontSize: "0.68rem", lineHeight: "1.45" }}>
                     {(moduleItem.nextActions && moduleItem.nextActions[0]) || "Complete one diagnostic step to unlock next actions."}
@@ -263,9 +390,9 @@ export function Dashboard() {
               ))}
             </div>
           </div>
-        </div>
+        </motion.section>
 
-        <div className="flex items-center justify-between mt-6 mb-6">
+        <div className="flex items-center justify-between mt-2 mb-1">
           <div className="flex gap-1 bg-[var(--card)] border border-[var(--border)] rounded-2xl p-1.5 w-fit">
             {(["overview", "analytics"] as const).map((tab) => (
               <button
@@ -282,7 +409,7 @@ export function Dashboard() {
           </div>
           <button
             onClick={() => setShowAddModal(true)}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-white transition-all cursor-pointer hover:opacity-90"
+            className="flex items-center gap-2 px-4 py-2.5 rounded-2xl text-white transition-all cursor-pointer hover:opacity-90"
             style={{ background: "linear-gradient(135deg, #FF7541, #B352D7)", fontSize: "0.85rem" }}
           >
             <Plus className="w-4 h-4" />
@@ -319,20 +446,24 @@ export function Dashboard() {
                   const sc = statusConfig[mod.status];
 
                   return (
-                    <div
+                    <motion.div
                       key={mod.id}
-                      className="bg-[var(--card)] border border-[var(--border)] rounded-2xl relative overflow-hidden group"
+                      className="bg-[var(--card)] border border-[var(--border)] rounded-2xl relative overflow-hidden group shadow-[0_18px_45px_rgba(0,0,0,0.08)]"
+                      initial={{ opacity: 0, y: 22 }}
+                      whileInView={{ opacity: 1, y: 0 }}
+                      viewport={{ once: true, amount: 0.2 }}
+                      transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
                     >
                       <div className="relative h-28 overflow-hidden">
                         <img
-                          src={makeStoryImage(mod.name, mod.color, "#18275C")}
+                          src={makeStoryImage(mod.color, "#18275C", "#DE6AE4")}
                           alt={`${mod.name} visual banner`}
                           className="w-full h-full object-cover"
                         />
                         <div className="absolute inset-0 bg-gradient-to-r from-black/45 via-black/20 to-transparent" />
                         <div className="absolute inset-0 p-4 flex items-start justify-between">
                           <button
-                            onClick={() => navigate(`/module/${mod.id}`)}
+                            onClick={() => openModule(mod.id)}
                             className="flex items-center gap-3 cursor-pointer text-left"
                           >
                             <div
@@ -357,7 +488,7 @@ export function Dashboard() {
                               <Trash2 className="w-3.5 h-3.5" style={{ color: "#ef4444" }} />
                             </button>
                             <button
-                              onClick={() => navigate(`/module/${mod.id}`)}
+                              onClick={() => openModule(mod.id)}
                               className="w-8 h-8 rounded-lg bg-black/20 hover:bg-black/35 flex items-center justify-center transition-all cursor-pointer"
                             >
                               <ChevronRight className="w-4 h-4 text-white" />
@@ -421,7 +552,7 @@ export function Dashboard() {
                           </div>
                         )}
                       </div>
-                    </div>
+                    </motion.div>
                   );
                 })}
               </div>
@@ -442,7 +573,14 @@ export function Dashboard() {
               <>
                 {/* Mastery per topic */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                  <div className="bg-[var(--card)] border border-[var(--border)] rounded-2xl p-5">
+                  <motion.div
+                    className="bg-[var(--card)] border border-[var(--border)] rounded-[1.8rem] p-5 overflow-hidden relative"
+                    initial={{ opacity: 0, y: 18 }}
+                    whileInView={{ opacity: 1, y: 0 }}
+                    viewport={{ once: true, amount: 0.25 }}
+                    transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
+                  >
+                    <div className="absolute inset-0 opacity-70 pointer-events-none" style={{ background: "radial-gradient(circle at top right, var(--texture-glow-a) 0%, transparent 44%)" }} />
                     <div className="flex items-center gap-2 mb-5">
                       <BarChart3 className="w-4 h-4 text-primary" />
                       <h3>Mastery per Topic</h3>
@@ -466,10 +604,16 @@ export function Dashboard() {
                         </div>
                       ))}
                     </div>
-                  </div>
+                  </motion.div>
 
-                  {/* Error Type Breakdown */}
-                  <div className="bg-[var(--card)] border border-[var(--border)] rounded-2xl p-5">
+                  <motion.div
+                    className="bg-[var(--card)] border border-[var(--border)] rounded-[1.8rem] p-5 overflow-hidden relative"
+                    initial={{ opacity: 0, y: 18 }}
+                    whileInView={{ opacity: 1, y: 0 }}
+                    viewport={{ once: true, amount: 0.25 }}
+                    transition={{ delay: 0.06, duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
+                  >
+                    <div className="absolute inset-0 opacity-60 pointer-events-none" style={{ background: "radial-gradient(circle at bottom left, var(--texture-glow-b) 0%, transparent 48%)" }} />
                     <div className="flex items-center gap-2 mb-5">
                       <AlertTriangle className="w-4 h-4" style={{ color: "#FF7541" }} />
                       <h3>Error Breakdown</h3>
@@ -504,11 +648,17 @@ export function Dashboard() {
                         );
                       })}
                     </div>
-                  </div>
+                  </motion.div>
                 </div>
 
-                {/* Estimated time to mastery */}
-                <div className="bg-[var(--card)] border border-[var(--border)] rounded-2xl p-5">
+                <motion.div
+                  className="bg-[var(--card)] border border-[var(--border)] rounded-[1.8rem] p-5 overflow-hidden relative"
+                  initial={{ opacity: 0, y: 18 }}
+                  whileInView={{ opacity: 1, y: 0 }}
+                  viewport={{ once: true, amount: 0.25 }}
+                  transition={{ delay: 0.1, duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
+                >
+                  <div className="absolute inset-0 opacity-40 pointer-events-none" style={{ backgroundImage: "linear-gradient(to right, var(--texture-grid) 1px, transparent 1px), linear-gradient(to bottom, var(--texture-grid) 1px, transparent 1px)", backgroundSize: "72px 72px" }} />
                   <div className="flex items-center gap-2 mb-5">
                     <Target className="w-4 h-4" style={{ color: "#DE6AE4" }} />
                     <h3>Estimated Time to Mastery</h3>
@@ -531,7 +681,7 @@ export function Dashboard() {
                       </div>
                     ))}
                   </div>
-                </div>
+                </motion.div>
               </>
             )}
           </div>

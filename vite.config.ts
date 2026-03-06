@@ -43,7 +43,7 @@ type ChatRequestBody = {
   requestAdaptiveQuestion?: boolean
   quizFromUploads?: boolean
   uploadMode?: 'quiz' | 'teach' | 'revise'
-  sessionMode?: 'coach' | 'oral-quiz' | 'roleplay' | 'interview'
+  sessionMode?: 'coach' | 'roleplay' | 'interview'
   userMessage: string
 }
 
@@ -515,13 +515,6 @@ function chatApiPlugin(getApiKey: () => string | undefined, getModel: () => stri
               ? [
                   'Revise mode is enabled from uploaded files.',
                   'Provide a concise revision summary with key points and common mistakes only.',
-                ]
-              : []),
-            ...(body.sessionMode === 'oral-quiz'
-              ? [
-                  'Oral quiz mode is enabled.',
-                  'Ask one short spoken-style question at a time, then wait for the learner response before continuing.',
-                  'Keep prompts concise and conversational.',
                 ]
               : []),
             ...(body.sessionMode === 'roleplay'

@@ -66,6 +66,8 @@ export interface WeeklyPlanBlock {
   reason: string;
   minutes: number;
   type: "review" | "focus" | "deadline" | "recovery";
+  scheduledFor?: string;
+  isCompleted?: boolean;
 }
 
 const stopwords = new Set([
@@ -425,6 +427,7 @@ export function buildWeeklyPlanForModule(module: Module): WeeklyPlanBlock[] {
       reason: `Reviews due today directly improve evidence-based mastery for ${module.name}.`,
       minutes: clamp(dueItems.length * 12, 15, 40),
       type: "review",
+      isCompleted: false,
     });
   }
 
@@ -437,6 +440,7 @@ export function buildWeeklyPlanForModule(module: Module): WeeklyPlanBlock[] {
       reason: `${weakSpot.name} has the weakest mastery signal in this module.`,
       minutes: clamp(Math.round(weeklyMinutes * 0.35), 20, 60),
       type: "focus",
+      isCompleted: false,
     });
   }
 
@@ -449,6 +453,7 @@ export function buildWeeklyPlanForModule(module: Module): WeeklyPlanBlock[] {
       reason: daysLeft <= 7 ? `Shift time toward retrieval and exam-style practice.` : `Keep steady progress toward your deadline.`,
       minutes: clamp(Math.round(weeklyMinutes * 0.25), 15, 45),
       type: daysLeft <= 7 ? "deadline" : "recovery",
+      isCompleted: false,
     });
   }
 

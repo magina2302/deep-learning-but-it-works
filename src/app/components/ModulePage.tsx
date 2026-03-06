@@ -1,28 +1,12 @@
 import { useParams, useNavigate, useLocation } from "react-router";
 import { ChatPanel } from "./ChatPanel";
 import { MetricsPanel } from "./MetricsPanel";
-import { ArrowLeft, PanelRightOpen, PanelRightClose } from "lucide-react";
+import { ArrowLeft, GraduationCap, PanelRightOpen, PanelRightClose } from "lucide-react";
 import { useState } from "react";
 import { ThemeSwitcher } from "./ThemeSwitcher";
 import { useModules } from "./ModulesContext";
-
-const makeModuleStoryImage = (title: string, colorA: string, colorB: string) =>
-  `data:image/svg+xml;utf8,${encodeURIComponent(`
-    <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 340'>
-      <defs>
-        <linearGradient id='bg' x1='0' y1='0' x2='1' y2='1'>
-          <stop offset='0%' stop-color='${colorA}'/>
-          <stop offset='100%' stop-color='${colorB}'/>
-        </linearGradient>
-      </defs>
-      <rect width='1200' height='340' fill='url(#bg)'/>
-      <circle cx='1050' cy='60' r='160' fill='white' opacity='0.16'/>
-      <circle cx='180' cy='320' r='210' fill='white' opacity='0.12'/>
-      <path d='M0 250 C 200 200, 320 300, 540 240 C 760 185, 940 300, 1200 220 L1200 340 L0 340 Z' fill='white' opacity='0.18'/>
-      <text x='58' y='92' font-family='Inter, Arial, sans-serif' font-size='54' font-weight='700' fill='white'>${title}</text>
-      <text x='58' y='138' font-family='Inter, Arial, sans-serif' font-size='24' fill='white' opacity='0.92'>Deep work mode · one concept at a time</text>
-    </svg>
-  `)}`;
+import { motion } from "motion/react";
+import { getWeakSpots } from "../data/mock-data";
 
 export function ModulePage() {
   const { moduleId } = useParams();
@@ -47,28 +31,60 @@ export function ModulePage() {
     );
   }
 
+  const fromDashboard = Boolean(location.state && typeof location.state === "object" && "fromDashboard" in location.state);
+  const dueCount = module.dueToday?.length || 0;
+  const weakSpotCount = getWeakSpots(module.subtopics).length;
+  const nextPlanBlock = (module.weeklyPlan || []).find((block) => !block.isCompleted);
+
   return (
-    <div className="h-screen max-h-screen flex flex-col overflow-hidden bg-[var(--background)]">
-      <div className="shrink-0 border-b border-[var(--border)] bg-[var(--card)]">
-        <div className="px-5 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-3">
+    <motion.div
+      className="relative flex h-screen max-h-screen flex-col overflow-hidden"
+      style={{ backgroundImage: "var(--page-background)" }}
+      initial={fromDashboard ? { opacity: 0, y: 26, scale: 0.985 } : { opacity: 0, y: 14 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      transition={{ duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
+    >
+      <div className="pointer-events-none absolute inset-0 overflow-hidden">
+        <div className="absolute right-0 top-0 h-72 w-72 rounded-full opacity-16" style={{ background: "radial-gradient(circle, var(--texture-glow-a) 0%, transparent 70%)" }} />
+        <div className="absolute bottom-0 left-0 h-80 w-80 rounded-full opacity-12" style={{ background: "radial-gradient(circle, var(--texture-glow-b) 0%, transparent 70%)" }} />
+        <div className="absolute inset-0 opacity-24" style={{ backgroundImage: "linear-gradient(to right, var(--texture-grid) 1px, transparent 1px), linear-gradient(to bottom, var(--texture-grid) 1px, transparent 1px)", backgroundSize: "96px 96px" }} />
+      </div>
+
+      <div className="relative z-10 shrink-0 border-b border-white/8 bg-black/8 backdrop-blur-xl">
+        <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-4 px-4 py-4 md:px-5">
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex items-center gap-3">
             <button
               onClick={() => navigate("/")}
-              className="w-8 h-8 rounded-lg hover:bg-[var(--accent)] flex items-center justify-center transition-colors cursor-pointer"
+              className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 bg-white/6 transition-colors hover:bg-white/10 cursor-pointer"
             >
               <ArrowLeft className="w-4 h-4 text-foreground" />
             </button>
-            <div
-              className="w-8 h-8 rounded-lg flex items-center justify-center"
-              style={{ backgroundColor: module.bgColor }}
-            >
-              <span style={{ fontSize: "1rem" }}>{module.icon}</span>
+            <div className="hidden items-center gap-3 rounded-2xl border border-white/10 bg-white/6 px-3 py-2 text-foreground backdrop-blur-sm sm:flex">
+              <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 bg-white/10 text-white">
+                <GraduationCap className="h-4 w-4" />
+              </div>
+              <div>
+                <p style={{ fontSize: "0.72rem", letterSpacing: "0.18em", textTransform: "uppercase" }}>Gradify</p>
+                <p className="text-muted-foreground" style={{ fontSize: "0.78rem" }}>Module workspace</p>
+              </div>
             </div>
-            <div>
-              <h3 className="text-foreground">{module.name}</h3>
-              <div className="flex items-center gap-2">
-                <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: module.color }} />
-                <span className="text-muted-foreground" style={{ fontSize: "0.7rem" }}>{module.statusLabel}</span>
+              <div>
+                <div className="flex items-center gap-3">
+                <div
+                  className="flex h-10 w-10 items-center justify-center rounded-xl shadow-[0_14px_35px_rgba(0,0,0,0.12)]"
+                  style={{ backgroundColor: module.bgColor }}
+                >
+                  <span style={{ fontSize: "1rem" }}>{module.icon}</span>
+                </div>
+                <div>
+                  <h3 className="text-foreground">{module.name}</h3>
+                  <div className="flex items-center gap-2">
+                    <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: module.color }} />
+                    <span className="text-muted-foreground" style={{ fontSize: "0.72rem" }}>{module.statusLabel}</span>
+                    <span className="text-muted-foreground/70" style={{ fontSize: "0.72rem" }}>Mastery {module.overallMastery}%</span>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -76,7 +92,7 @@ export function ModulePage() {
             <ThemeSwitcher />
             <button
               onClick={() => setShowMetrics(!showMetrics)}
-              className="w-9 h-9 rounded-xl bg-[var(--accent)] hover:bg-[var(--muted)] flex items-center justify-center transition-colors cursor-pointer"
+              className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 bg-white/6 transition-colors hover:bg-white/10 cursor-pointer"
             >
               {showMetrics ? (
                 <PanelRightClose className="w-4 h-4 text-muted-foreground" />
@@ -87,43 +103,59 @@ export function ModulePage() {
           </div>
         </div>
 
-        <div className="px-5 pb-3">
-          <div className="relative rounded-2xl overflow-hidden border border-[var(--border)] h-24 md:h-28">
-            <img
-              src={makeModuleStoryImage(module.name, module.color, "#18275C")}
-              alt={`${module.name} story banner`}
-              className="w-full h-full object-cover"
-            />
-            <div className="absolute inset-0 bg-gradient-to-r from-black/55 via-black/20 to-transparent" />
-            <div className="absolute inset-0 p-4 flex items-end justify-between">
-              <p className="text-white max-w-xl" style={{ fontSize: "0.74rem", lineHeight: "1.45" }}>
-                Stay with one problem long enough for pattern recognition to click. That&apos;s where mastery compounds.
+          <div className="grid gap-2 md:grid-cols-3 xl:grid-cols-[1.1fr_0.9fr_0.95fr]">
+            <div className="rounded-[1.35rem] border border-white/10 bg-white/6 px-4 py-3 backdrop-blur-sm">
+              <p className="text-muted-foreground" style={{ fontSize: "0.64rem", letterSpacing: "0.12em", textTransform: "uppercase" }}>Workspace</p>
+              <p className="mt-1 text-foreground" style={{ fontSize: "0.88rem", lineHeight: "1.55" }}>
+                Chat stays primary, with metrics available beside it instead of competing with it.
               </p>
-              <span className="px-2.5 py-1 rounded-lg bg-black/30 border border-white/20 text-white" style={{ fontSize: "0.64rem" }}>
-                Mastery {module.overallMastery}%
-              </span>
+            </div>
+            <div className="rounded-[1.35rem] border border-white/10 bg-white/6 px-4 py-3 backdrop-blur-sm">
+              <p className="text-muted-foreground" style={{ fontSize: "0.64rem", letterSpacing: "0.12em", textTransform: "uppercase" }}>Attention</p>
+              <div className="mt-1 flex flex-wrap items-center gap-2 text-foreground" style={{ fontSize: "0.82rem" }}>
+                <span>{dueCount} due</span>
+                <span className="text-muted-foreground">/</span>
+                <span>{weakSpotCount} weak spots</span>
+              </div>
+            </div>
+            <div className="rounded-[1.35rem] border border-white/10 bg-white/6 px-4 py-3 backdrop-blur-sm">
+              <p className="text-muted-foreground" style={{ fontSize: "0.64rem", letterSpacing: "0.12em", textTransform: "uppercase" }}>Next block</p>
+              <p className="mt-1 text-foreground" style={{ fontSize: "0.82rem", lineHeight: "1.55" }}>
+                {nextPlanBlock ? `${nextPlanBlock.title} · ${nextPlanBlock.minutes} mins` : "No pending weekly plan block. Use the chat or plan panel to set one up."}
+              </p>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Content */}
-      <div className="flex-1 min-h-0 flex overflow-hidden relative">
-        <div className={`flex-1 min-w-0 ${showMetrics ? "" : "w-full"}`}>
-          <ChatPanel module={module} startRecoveryQuiz={shouldStartRecoveryQuiz} />
-        </div>
+      <div className="relative z-10 mx-auto flex min-h-0 w-full max-w-[1600px] flex-1 overflow-hidden px-4 pb-4 pt-4 md:px-5 md:pb-5">
+        <div className={`grid min-h-0 w-full gap-4 ${showMetrics ? "xl:grid-cols-[minmax(0,1.58fr)_360px]" : "grid-cols-1"}`}>
+          <motion.div
+            className="min-h-0 overflow-hidden rounded-[1.9rem] border border-white/10 bg-black/8 shadow-[0_22px_64px_rgba(0,0,0,0.16)] backdrop-blur-xl"
+            initial={fromDashboard ? { opacity: 0, x: -18 } : false}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ delay: 0.08, duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
+          >
+            <ChatPanel module={module} startRecoveryQuiz={shouldStartRecoveryQuiz} />
+          </motion.div>
 
-        {showMetrics && (
-          <>
-            <div className="hidden md:block w-[380px] shrink-0">
-              <MetricsPanel module={module} />
-            </div>
-            <div className="md:hidden absolute inset-0 z-10 bg-[var(--card)]">
-              <MetricsPanel module={module} />
-            </div>
-          </>
-        )}
+          {showMetrics && (
+            <>
+              <motion.div
+                className="hidden min-h-0 overflow-hidden rounded-[1.9rem] border border-white/10 bg-black/8 shadow-[0_22px_64px_rgba(0,0,0,0.16)] backdrop-blur-xl xl:block"
+                initial={fromDashboard ? { opacity: 0, x: 18 } : false}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: 0.14, duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
+              >
+                <MetricsPanel module={module} />
+              </motion.div>
+              <div className="absolute inset-0 z-10 rounded-[1.9rem] border border-white/10 bg-[var(--card)] shadow-[0_22px_64px_rgba(0,0,0,0.16)] xl:hidden">
+                <MetricsPanel module={module} />
+              </div>
+            </>
+          )}
+        </div>
       </div>
-    </div>
+    </motion.div>
   );
 }

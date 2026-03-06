@@ -2,6 +2,13 @@
 
 :root {
   --font-size: 16px;
+  --font-ui: 'Space Grotesk', system-ui, sans-serif;
+  --font-display: 'Sora', 'Space Grotesk', system-ui, sans-serif;
+  --page-background: radial-gradient(circle at top, rgba(42, 23, 87, 0.9) 0%, #0f1629 45%, #0b1120 100%);
+  --hero-plane: linear-gradient(135deg, rgba(37, 19, 79, 0.96) 0%, rgba(7, 13, 27, 0.98) 100%);
+  --texture-glow-a: rgba(255, 117, 65, 0.22);
+  --texture-glow-b: rgba(179, 82, 215, 0.18);
+  --texture-grid: rgba(255, 255, 255, 0.05);
   --background: #0f1629;
   --foreground: #eef0f6;
   --card: #1a2240;
@@ -51,6 +58,11 @@
 }
 
 .theme-light {
+  --page-background: radial-gradient(circle at top, rgba(255, 255, 255, 0.95) 0%, #f5f3ff 38%, #efe7ff 100%);
+  --hero-plane: linear-gradient(135deg, rgba(255, 255, 255, 0.92) 0%, rgba(237, 233, 254, 0.98) 100%);
+  --texture-glow-a: rgba(255, 117, 65, 0.18);
+  --texture-glow-b: rgba(97, 41, 204, 0.14);
+  --texture-grid: rgba(24, 39, 92, 0.06);
   --background: #f5f3ff;
   --foreground: #18275C;
   --card: #ffffff;
@@ -75,6 +87,11 @@
 }
 
 .theme-aurora {
+  --page-background: radial-gradient(circle at top, rgba(14, 26, 68, 0.92) 0%, #0a0f1e 42%, #091423 100%);
+  --hero-plane: linear-gradient(135deg, rgba(11, 18, 41, 0.96) 0%, rgba(8, 15, 30, 0.98) 100%);
+  --texture-glow-a: rgba(222, 106, 228, 0.18);
+  --texture-glow-b: rgba(56, 189, 248, 0.14);
+  --texture-grid: rgba(232, 240, 255, 0.04);
   --background: #0a0f1e;
   --foreground: #e8f0ff;
   --card: #111827;
@@ -99,6 +116,11 @@
 }
 
 .theme-ember {
+  --page-background: radial-gradient(circle at top, rgba(87, 33, 18, 0.86) 0%, #1a0e0a 45%, #130906 100%);
+  --hero-plane: linear-gradient(135deg, rgba(45, 20, 13, 0.96) 0%, rgba(26, 14, 10, 0.98) 100%);
+  --texture-glow-a: rgba(255, 117, 65, 0.18);
+  --texture-glow-b: rgba(239, 68, 68, 0.16);
+  --texture-grid: rgba(252, 232, 224, 0.04);
   --background: #1a0e0a;
   --foreground: #fce8e0;
   --card: #261710;
@@ -123,6 +145,11 @@
 }
 
 .theme-royal {
+  --page-background: radial-gradient(circle at top, rgba(240, 232, 255, 0.95) 0%, #f8f5ff 45%, #efe8ff 100%);
+  --hero-plane: linear-gradient(135deg, rgba(255, 255, 255, 0.92) 0%, rgba(237, 233, 254, 0.98) 100%);
+  --texture-glow-a: rgba(97, 41, 204, 0.16);
+  --texture-glow-b: rgba(179, 82, 215, 0.14);
+  --texture-grid: rgba(30, 16, 69, 0.06);
   --background: #f8f5ff;
   --foreground: #1e1045;
   --card: #ffffff;
@@ -147,6 +174,11 @@
 }
 
 .theme-cosmic {
+  --page-background: radial-gradient(circle at top, rgba(54, 19, 96, 0.84) 0%, #0c0520 44%, #080214 100%);
+  --hero-plane: linear-gradient(135deg, rgba(28, 10, 56, 0.96) 0%, rgba(12, 5, 32, 0.99) 100%);
+  --texture-glow-a: rgba(179, 82, 215, 0.2);
+  --texture-glow-b: rgba(222, 106, 228, 0.16);
+  --texture-grid: rgba(240, 230, 255, 0.04);
   --background: #0c0520;
   --foreground: #f0e6ff;
   --card: #150d2e;
@@ -218,7 +250,10 @@
 
   body {
     @apply bg-background text-foreground;
-    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    font-family: var(--font-ui);
+    letter-spacing: -0.01em;
+    background-image: var(--page-background);
+    background-attachment: fixed;
     transition: background-color 0.3s ease, color 0.3s ease;
   }
 
@@ -230,24 +265,32 @@
     font-size: var(--text-2xl);
     font-weight: var(--font-weight-medium);
     line-height: 1.5;
+    font-family: var(--font-display);
+    letter-spacing: -0.04em;
   }
 
   h2 {
     font-size: var(--text-xl);
     font-weight: var(--font-weight-medium);
     line-height: 1.5;
+    font-family: var(--font-display);
+    letter-spacing: -0.035em;
   }
 
   h3 {
     font-size: var(--text-lg);
     font-weight: var(--font-weight-medium);
     line-height: 1.5;
+    font-family: var(--font-display);
+    letter-spacing: -0.03em;
   }
 
   h4 {
     font-size: var(--text-base);
     font-weight: var(--font-weight-medium);
     line-height: 1.5;
+    font-family: var(--font-display);
+    letter-spacing: -0.025em;
   }
 
   label {
