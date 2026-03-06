@@ -4,6 +4,7 @@ import {
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { recommendStudyPlan, StudyPlanItem } from "../data/study-plan";
+import { createModuleSummary } from "../data/learning-core";
 
 interface MetricsPanelProps {
   module: Module;
@@ -17,6 +18,10 @@ export function MetricsPanel({ module }: MetricsPanelProps) {
   const daysInactive = getDaysInactive(module.lastStudied);
   const weakSpots = getWeakSpots(module.subtopics);
   const completedCount = module.subtopics.filter((s) => s.completed).length;
+  const masteryBreakdown = module.masteryBreakdown;
+  const weeklyPlan = module.weeklyPlan || [];
+  const nextActions = module.nextActions || [];
+  const mistakeHistory = module.mistakeHistory || [];
 
   useEffect(() => {
     setStudyPlan([]);
@@ -106,6 +111,94 @@ export function MetricsPanel({ module }: MetricsPanelProps) {
             />
           </div>
         </div>
+
+        {masteryBreakdown && (
+          <div>
+            <div className="flex items-center gap-2 mb-3">
+              <Target className="w-4 h-4" style={{ color: module.color }} />
+              <h4>Why your mastery is {masteryBreakdown.overall}%</h4>
+            </div>
+            <div className="rounded-xl p-4 border border-[var(--border)] bg-[var(--accent)] space-y-3">
+              <div className="grid grid-cols-2 gap-2">
+                {[
+                  { label: "Retrieval", value: masteryBreakdown.retrieval },
+                  { label: "Consistency", value: masteryBreakdown.consistency },
+                  { label: "Recency", value: masteryBreakdown.recency },
+                  { label: "Completion", value: masteryBreakdown.completion },
+                ].map((item) => (
+                  <div key={item.label} className="rounded-lg bg-[var(--card)] px-3 py-2">
+                    <p className="text-muted-foreground" style={{ fontSize: "0.62rem" }}>{item.label}</p>
+                    <p className="text-foreground" style={{ fontSize: "0.85rem" }}>{item.value}%</p>
+                  </div>
+                ))}
+              </div>
+              <div className="space-y-2">
+                {masteryBreakdown.explanation.map((line) => (
+                  <p key={line} className="text-muted-foreground" style={{ fontSize: "0.72rem", lineHeight: "1.45" }}>
+                    {line}
+                  </p>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {module.diagnostic && (
+          <div>
+            <div className="flex items-center gap-2 mb-3">
+              <Clock className="w-4 h-4" style={{ color: "#38bdf8" }} />
+              <h4>Goal & Deadline Coach</h4>
+            </div>
+            <div className="rounded-xl p-4 border border-[var(--border)] bg-[var(--accent)] space-y-2">
+              <p className="text-foreground" style={{ fontSize: "0.78rem", lineHeight: "1.45" }}>{module.diagnostic.goal}</p>
+              <p className="text-muted-foreground" style={{ fontSize: "0.7rem" }}>
+                Weekly budget: {module.diagnostic.weeklyStudyMinutes} mins
+                {module.diagnostic.deadline ? ` · Deadline: ${new Date(module.diagnostic.deadline).toLocaleDateString()}` : ""}
+              </p>
+              {module.diagnostic.knownWeakAreas.length > 0 && (
+                <p className="text-muted-foreground" style={{ fontSize: "0.7rem" }}>
+                  Weak areas flagged at onboarding: {module.diagnostic.knownWeakAreas.join(", ")}
+                </p>
+              )}
+            </div>
+          </div>
+        )}
+
+        {weeklyPlan.length > 0 && (
+          <div>
+            <div className="flex items-center gap-2 mb-3">
+              <ClipboardList className="w-4 h-4" style={{ color: "#DE6AE4" }} />
+              <h4>Weekly Plan</h4>
+            </div>
+            <div className="space-y-2">
+              {weeklyPlan.map((block) => (
+                <div key={block.id} className="rounded-xl border border-[var(--border)] bg-[var(--accent)] px-3 py-3">
+                  <div className="flex items-center justify-between gap-2 mb-1">
+                    <span className="text-foreground" style={{ fontSize: "0.78rem" }}>{block.title}</span>
+                    <span className="px-2 py-0.5 rounded-full text-white" style={{ fontSize: "0.6rem", backgroundColor: module.color }}>{block.minutes} mins</span>
+                  </div>
+                  <p className="text-muted-foreground" style={{ fontSize: "0.68rem", lineHeight: "1.45" }}>{block.reason}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {nextActions.length > 0 && (
+          <div>
+            <div className="flex items-center gap-2 mb-3">
+              <Lightbulb className="w-4 h-4" style={{ color: module.color }} />
+              <h4>Next Actions</h4>
+            </div>
+            <div className="rounded-xl p-4 border border-[var(--border)] bg-[var(--accent)] space-y-2">
+              {nextActions.map((action) => (
+                <p key={action} className="text-muted-foreground" style={{ fontSize: "0.72rem", lineHeight: "1.45" }}>
+                  - {action}
+                </p>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Study Plan Generator */}
         <div>
@@ -223,6 +316,38 @@ export function MetricsPanel({ module }: MetricsPanelProps) {
               </div>
             ))}
           </div>
+        </div>
+
+        {mistakeHistory.length > 0 && (
+          <div>
+            <div className="flex items-center gap-2 mb-3">
+              <AlertTriangle className="w-4 h-4" style={{ color: "#ef4444" }} />
+              <h4>Mistake Review History</h4>
+            </div>
+            <div className="space-y-2">
+              {mistakeHistory.slice(0, 5).map((mistake) => (
+                <div key={mistake.id} className="rounded-xl px-3 py-3" style={{ backgroundColor: "rgba(239,68,68,0.06)", border: "1px solid rgba(239,68,68,0.12)" }}>
+                  <div className="flex items-center justify-between gap-2 mb-1">
+                    <span className="text-foreground" style={{ fontSize: "0.75rem" }}>{mistake.subtopicName}</span>
+                    <span style={{ fontSize: "0.62rem", color: mistake.severity === "high" ? "#ef4444" : "#f59e0b" }}>{mistake.severity}</span>
+                  </div>
+                  <p className="text-muted-foreground" style={{ fontSize: "0.68rem", lineHeight: "1.45" }}>{mistake.trigger}</p>
+                  <p className="text-foreground mt-1" style={{ fontSize: "0.66rem", lineHeight: "1.45" }}>Next step: {mistake.nextStep}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div>
+          <button
+            type="button"
+            onClick={() => navigator.clipboard.writeText(createModuleSummary(module)).catch(() => {})}
+            className="w-full py-3 rounded-xl text-white transition-all cursor-pointer"
+            style={{ background: `linear-gradient(135deg, ${module.color}, #B352D7)`, fontSize: "0.8rem" }}
+          >
+            Copy Teacher / Study Partner Summary
+          </button>
         </div>
 
         {/* Subtopic Mastery Breakdown */}

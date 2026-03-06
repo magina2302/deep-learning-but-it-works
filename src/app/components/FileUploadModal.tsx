@@ -130,6 +130,17 @@ async function readAttachmentContent(file: File): Promise<string | undefined> {
   return `${raw.slice(0, MAX_FILE_CHARS)}\n\n[truncated: file too long]`;
 }
 
+async function readImageDataUrl(file: File): Promise<string | undefined> {
+  if (!file.type.startsWith("image/")) return undefined;
+
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : undefined);
+    reader.onerror = () => resolve(undefined);
+    reader.readAsDataURL(file);
+  });
+}
+
 const categories: { id: FileCategory; label: string; icon: typeof BookOpen; description: string }[] = [
   { id: "Lecture", label: "Lecture", icon: BookOpen, description: "Lecture slides & notes" },
   { id: "PYP", label: "PYP", icon: FileText, description: "Past year papers" },
@@ -174,6 +185,7 @@ export function FileUploadModal({ open, onClose, onUpload }: FileUploadModalProp
         category: pf.category,
         mimeType: pf.file.type || undefined,
         content: await readAttachmentContent(pf.file),
+        dataUrl: await readImageDataUrl(pf.file),
       })),
     );
     onUpload(attachments);

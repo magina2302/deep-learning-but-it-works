@@ -51,6 +51,7 @@ export function Dashboard() {
     : 0;
   const totalCompleted = modules.reduce((sum, m) => sum + m.subtopics.filter((s) => s.completed).length, 0);
   const totalSubtopics = modules.reduce((sum, m) => sum + m.subtopics.length, 0);
+  const dueTodayItems = modules.flatMap((moduleItem) => moduleItem.dueToday || []);
 
   const statusConfig: Record<string, { dot: string }> = {
     "on-track": { dot: "#10b981" },
@@ -193,6 +194,74 @@ export function Dashboard() {
                 </div>
               </div>
             ))}
+          </div>
+        </div>
+
+        <div className="mb-6 grid grid-cols-1 lg:grid-cols-[1.15fr_0.85fr] gap-5">
+          <div className="rounded-2xl border border-[var(--border)] bg-[var(--card)] p-5">
+            <div className="flex items-center justify-between gap-3 mb-3">
+              <div>
+                <h3>Due Today Review Queue</h3>
+                <p className="text-muted-foreground" style={{ fontSize: "0.72rem" }}>
+                  Evidence-backed mastery only moves when reviews are completed.
+                </p>
+              </div>
+              <span className="px-2.5 py-1 rounded-lg bg-[var(--accent)] text-muted-foreground" style={{ fontSize: "0.7rem" }}>
+                {dueTodayItems.length} due
+              </span>
+            </div>
+            {dueTodayItems.length === 0 ? (
+              <p className="text-muted-foreground" style={{ fontSize: "0.8rem", lineHeight: "1.5" }}>
+                Nothing is due right now. Use this session to upload new material or strengthen a weak concept.
+              </p>
+            ) : (
+              <div className="space-y-2.5">
+                {dueTodayItems.slice(0, 4).map((item) => (
+                  <button
+                    key={`${item.moduleId}-${item.subtopicId}`}
+                    onClick={() => navigate(`/module/${item.moduleId}`)}
+                    className="w-full text-left rounded-xl border border-[var(--border)] bg-[var(--background)] px-4 py-3 hover:border-[var(--muted-foreground)] transition-colors cursor-pointer"
+                  >
+                    <div className="flex items-center justify-between gap-3 mb-1">
+                      <span className="text-foreground" style={{ fontSize: "0.82rem" }}>{item.subtopicName}</span>
+                      <span
+                        className="px-2 py-0.5 rounded-full"
+                        style={{
+                          fontSize: "0.6rem",
+                          backgroundColor: item.priority === "high" ? "rgba(239,68,68,0.12)" : item.priority === "medium" ? "rgba(245,158,11,0.12)" : "rgba(16,185,129,0.12)",
+                          color: item.priority === "high" ? "#ef4444" : item.priority === "medium" ? "#f59e0b" : "#10b981",
+                        }}
+                      >
+                        {item.priority}
+                      </span>
+                    </div>
+                    <p className="text-muted-foreground" style={{ fontSize: "0.7rem", lineHeight: "1.45" }}>
+                      {item.moduleName} · {item.reason}
+                    </p>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="rounded-2xl border border-[var(--border)] bg-[var(--card)] p-5">
+            <div className="flex items-center gap-2 mb-3">
+              <Target className="w-4 h-4" style={{ color: "#DE6AE4" }} />
+              <h3>Coach Notes</h3>
+            </div>
+            <div className="space-y-2.5">
+              {modules.slice(0, 3).map((moduleItem) => (
+                <div key={moduleItem.id} className="rounded-xl bg-[var(--background)] border border-[var(--border)] px-4 py-3">
+                  <div className="flex items-center justify-between gap-3 mb-1">
+                    <span className="text-foreground" style={{ fontSize: "0.8rem" }}>{moduleItem.name}</span>
+                    <span style={{ fontSize: "0.68rem", color: moduleItem.color }}>{moduleItem.overallMastery}%</span>
+                  </div>
+                  <p className="text-muted-foreground" style={{ fontSize: "0.68rem", lineHeight: "1.45" }}>
+                    {(moduleItem.nextActions && moduleItem.nextActions[0]) || "Complete one diagnostic step to unlock next actions."}
+                  </p>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
 

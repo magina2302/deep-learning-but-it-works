@@ -22,11 +22,13 @@ type ChatRequestBody = {
   currentSubtopicName?: string
   history?: ChatHistoryItem[]
   uploadedFiles?: Array<{
+    id?: string
     name: string
     size: string
     category: 'Lecture' | 'PYP' | 'Tutorial' | 'Labs'
     mimeType?: string
     content?: string
+    dataUrl?: string
   }>
   personaProfile?: {
     explanationStyle?: 'step-by-step' | 'conceptual' | 'visual' | 'exam-focused'
@@ -41,7 +43,20 @@ type ChatRequestBody = {
   requestAdaptiveQuestion?: boolean
   quizFromUploads?: boolean
   uploadMode?: 'quiz' | 'teach' | 'revise'
+  sessionMode?: 'coach' | 'oral-quiz' | 'roleplay' | 'interview'
   userMessage: string
+}
+
+type MaterialsAnalyzeBody = {
+  moduleName: string
+  attachments?: Array<{
+    id: string
+    name: string
+    mimeType?: string
+    content?: string
+    dataUrl?: string
+    category?: 'Lecture' | 'PYP' | 'Tutorial' | 'Labs'
+  }>
 }
 
 function getAdaptiveDifficulty(action: string): 'foundational' | 'standard' | 'challenging' {
@@ -200,6 +215,210 @@ function stripAdaptivePracticeSection(reply: string): string {
     .trim()
 }
 
+function extractRelevantSnippet(referenceText: string, reply: string): string | undefined {
+  const referenceLines = referenceText
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter((line) => line.length >= 24)
+    .slice(0, 80)
+
+  const replyTokens = new Set(tokenizeForGrounding(reply).slice(0, 20))
+  let bestLine = ''
+  let bestScore = 0
+
+  for (const line of referenceLines) {
+    const lineTokens = tokenizeForGrounding(line)
+    if (lineTokens.length === 0) continue
+    let score = 0
+    for (const token of lineTokens) {
+      if (replyTokens.has(token)) score += 1
+    }
+    if (score > bestScore) {
+      bestScore = score
+      bestLine = line
+    }
+  }
+
+  return bestLine || referenceLines[0]
+}
+
+function computeConfidenceLabel(groundedness: number | null, uploadedFiles: NonNullable<ChatRequestBody['uploadedFiles']>) {
+  if (uploadedFiles.length === 0) {
+    return {
+      confidence: 'medium' as const,
+      confidenceReason: 'This answer is model-generated without uploaded sources, so treat it as a guided explanation rather than verified course evidence.',
+    }
+  }
+
+  if (groundedness === null) {
+    return {
+      confidence: 'low' as const,
+      confidenceReason: 'Uploaded files were present, but there was not enough extracted text to validate the answer against them.',
+    }
+  }
+
+  if (groundedness >= 0.34) {
+    return {
+      confidence: 'high' as const,
+      confidenceReason: 'The answer strongly overlaps with terms and phrases found in your uploaded material.',
+    }
+  }
+
+  if (groundedness >= 0.18) {
+    return {
+      confidence: 'medium' as const,
+      confidenceReason: 'The answer is partially grounded in your uploaded files, but you should still verify important details.',
+    }
+  }
+
+  return {
+    confidence: 'low' as const,
+    confidenceReason: 'Only weak support was found in your uploaded material, so this answer may rely on general model knowledge.',
+  }
+}
+
+function buildCitations(reply: string, uploadedFiles: NonNullable<ChatRequestBody['uploadedFiles']>) {
+  return uploadedFiles
+    .map((file) => {
+      const content = typeof file.content === 'string' ? file.content : ''
+      const score = computeGroundednessScore(reply, content) || 0
+      return {
+        sourceName: file.name,
+        score,
+        snippet: content ? extractRelevantSnippet(content, reply) : undefined,
+      }
+    })
+    .filter((citation) => citation.score > 0.06 || citation.snippet)
+    .sort((left, right) => right.score - left.score)
+    .slice(0, 3)
+    .map(({ sourceName, snippet }) => ({ sourceName, snippet }))
+}
+
+function extractSubtopicCandidates(text: string, fallbackTopicName: string): string[] {
+  const lines = text
+    .replace(/\r/g, '\n')
+    .replace(/([.!?])\s+/g, '$1\n')
+    .split(/\n+/)
+    .map((line) => line.replace(/^\d+[.)-]?\s*/, '').replace(/[_*#>`~]/g, ' ').replace(/\s+/g, ' ').trim())
+    .filter((line) => line.length >= 6 && line.length <= 80)
+
+  const candidates = new Map<string, number>()
+  for (const line of lines) {
+    if (/^(page|figure|table|chapter|section)\b/i.test(line)) continue
+    const score = line.split(' ').filter((part) => part.length >= 4 && !guardrailStopwords.has(part.toLowerCase())).length
+    if (score > 0) {
+      candidates.set(line, Math.max(candidates.get(line) || 0, score))
+    }
+  }
+
+  const terms = text
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((token) => token.length >= 4 && !guardrailStopwords.has(token))
+
+  for (let index = 0; index < terms.length - 1; index += 1) {
+    const phrase = `${terms[index]} ${terms[index + 1]}`
+    const label = phrase.replace(/\b\w/g, (letter) => letter.toUpperCase())
+    candidates.set(label, (candidates.get(label) || 0) + 1)
+  }
+
+  const picked = [...candidates.entries()]
+    .sort((left, right) => right[1] - left[1])
+    .map(([candidate]) => candidate)
+    .filter((candidate, index, list) => list.findIndex((other) => other.toLowerCase() === candidate.toLowerCase()) === index)
+    .slice(0, 8)
+
+  return picked.length > 0 ? picked : [`Foundations of ${fallbackTopicName}`]
+}
+
+async function extractTopicsFromImage(apiKey: string, attachment: NonNullable<MaterialsAnalyzeBody['attachments']>[number], moduleName: string): Promise<string[]> {
+  if (!attachment.dataUrl) return []
+
+  const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: 'gpt-4o-mini',
+      temperature: 0.1,
+      max_tokens: 180,
+      messages: [
+        {
+          role: 'system',
+          content: 'You extract study topics from images of notes, worksheets, whiteboards, and textbook pages. Return JSON only in the form {"topics":["..."]}. Use concise subtopic names, 3-8 items max, and do not invent content not visible in the image.',
+        },
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: `Extract the main study subtopics from this image for the module ${moduleName}.` },
+            { type: 'image_url', image_url: { url: attachment.dataUrl } },
+          ],
+        },
+      ],
+    }),
+  })
+
+  if (!response.ok) return []
+  const data = await response.json()
+  const content = data?.choices?.[0]?.message?.content
+  if (typeof content !== 'string') return []
+
+  const match = content.match(/\{[\s\S]*\}/)
+  if (!match) return []
+
+  try {
+    const parsed = JSON.parse(match[0]) as { topics?: string[] }
+    return Array.isArray(parsed.topics)
+      ? parsed.topics.map((item) => String(item).trim()).filter(Boolean).slice(0, 8)
+      : []
+  } catch {
+    return []
+  }
+}
+
+function materialsAnalyzePlugin(getApiKey: () => string | undefined) {
+  return {
+    name: 'materials-analyze-api',
+    configureServer(server: any) {
+      server.middlewares.use(async (req: any, res: any, next: any) => {
+        if (req.method !== 'POST' || req.url !== '/api/materials/analyze') {
+          return next()
+        }
+
+        try {
+          const body = (await parseJsonBody(req)) as MaterialsAnalyzeBody
+          const attachments = Array.isArray(body.attachments) ? body.attachments : []
+          const apiKey = getApiKey()
+          const extractedSubtopics: Record<string, string[]> = {}
+
+          for (const attachment of attachments.slice(0, 8)) {
+            let topics: string[] = []
+            if (attachment.content) {
+              topics = extractSubtopicCandidates(attachment.content, body.moduleName)
+            } else if (attachment.dataUrl && apiKey) {
+              topics = await extractTopicsFromImage(apiKey, attachment, body.moduleName)
+            }
+
+            if (topics.length > 0) {
+              extractedSubtopics[attachment.id] = topics
+            }
+          }
+
+          res.statusCode = 200
+          res.setHeader('Content-Type', 'application/json')
+          res.end(JSON.stringify({ extractedSubtopics }))
+        } catch {
+          res.statusCode = 500
+          res.setHeader('Content-Type', 'application/json')
+          res.end(JSON.stringify({ error: 'Failed to analyze uploaded materials.' }))
+        }
+      })
+    },
+  }
+}
+
 function chatApiPlugin(getApiKey: () => string | undefined, getModel: () => string | undefined) {
   return {
     name: 'chat-api',
@@ -268,6 +487,7 @@ function chatApiPlugin(getApiKey: () => string | undefined, getModel: () => stri
             `Weak spot: ${body.weakSpotName || 'none'}`,
             `Next action policy: ${decision.action} (${decision.reason})`,
             `Learner persona: explanation=${body.personaProfile?.explanationStyle || 'step-by-step'}, pace=${body.personaProfile?.pace || 'normal'}, tone=${body.personaProfile?.tone || 'encouraging'}, questionStyle=${body.personaProfile?.questionStyle || 'problem-solving'}`,
+            `Session mode: ${body.sessionMode || 'coach'}`,
             `Error pattern insights: ${(body.errorPatterns || []).map((p) => `${p.type}:${p.count}`).join(', ') || 'none'}`,
             'Follow the next action policy in your response style and choice of task.',
             'When the learner asks for practice or explanation, align with persona settings and avoid generic responses.',
@@ -297,14 +517,39 @@ function chatApiPlugin(getApiKey: () => string | undefined, getModel: () => stri
                   'Provide a concise revision summary with key points and common mistakes only.',
                 ]
               : []),
+            ...(body.sessionMode === 'oral-quiz'
+              ? [
+                  'Oral quiz mode is enabled.',
+                  'Ask one short spoken-style question at a time, then wait for the learner response before continuing.',
+                  'Keep prompts concise and conversational.',
+                ]
+              : []),
+            ...(body.sessionMode === 'roleplay'
+              ? [
+                  'Roleplay mode is enabled.',
+                  'Behave like a scenario partner tied to the current topic and stay in character until the learner redirects you.',
+                ]
+              : []),
+            ...(body.sessionMode === 'interview'
+              ? [
+                  'Problem interview mode is enabled.',
+                  'Behave like an examiner or interviewer, asking probing questions and withholding the full solution until the learner attempts an answer.',
+                ]
+              : []),
           ].join('\n')
 
           const uploadedFiles = Array.isArray(body.uploadedFiles) ? body.uploadedFiles.slice(0, 4) : []
+          const referenceSnippets = uploadedFiles
+            .map((file) => (typeof file.content === 'string' ? file.content.trim() : ''))
+            .filter(Boolean)
+            .join('\n\n')
           const filesContext = uploadedFiles
             .map((file, index) => {
               const content = typeof file.content === 'string' ? file.content.trim() : ''
               if (!content) {
-                return `File ${index + 1}: ${file.name} (${file.category}, ${file.size}) - no extracted text content available.`
+                return file.dataUrl
+                  ? `File ${index + 1}: ${file.name} (${file.category}, ${file.size}) - image/photo upload provided. Use visual content where relevant.`
+                  : `File ${index + 1}: ${file.name} (${file.category}, ${file.size}) - no extracted text content available.`
               }
               return [
                 `File ${index + 1}: ${file.name} (${file.category}, ${file.size})`,
@@ -323,7 +568,18 @@ function chatApiPlugin(getApiKey: () => string | undefined, getModel: () => stri
           const messages = [
             { role: 'system', content: fullSystemPrompt },
             ...history,
-            { role: 'user', content: body.userMessage },
+            {
+              role: 'user',
+              content: uploadedFiles.some((file) => file.dataUrl)
+                ? [
+                    { type: 'text', text: body.userMessage },
+                    ...uploadedFiles
+                      .filter((file) => file.dataUrl)
+                      .slice(0, 2)
+                      .map((file) => ({ type: 'image_url', image_url: { url: file.dataUrl! } })),
+                  ]
+                : body.userMessage,
+            },
           ]
 
           const callOpenAi = async (model: string) => {
@@ -366,16 +622,19 @@ function chatApiPlugin(getApiKey: () => string | undefined, getModel: () => stri
             return
           }
 
+          const groundedness = referenceSnippets ? computeGroundednessScore(rawReply, referenceSnippets) : null
           let guardedReply = applyHallucinationGuardrails(rawReply, uploadedFiles)
           if (body.requestAdaptiveQuestion === false) {
             guardedReply = stripAdaptivePracticeSection(guardedReply)
           }
 
           const adaptiveQuestion = body.requestAdaptiveQuestion === false ? undefined : generateAdaptiveQuestion(body, decision.action)
+          const citations = buildCitations(guardedReply, uploadedFiles)
+          const { confidence, confidenceReason } = computeConfidenceLabel(groundedness, uploadedFiles)
 
           res.statusCode = 200
           res.setHeader('Content-Type', 'application/json')
-          res.end(JSON.stringify({ reply: guardedReply, decision, adaptiveQuestion }))
+          res.end(JSON.stringify({ reply: guardedReply, decision, adaptiveQuestion, confidence, confidenceReason, citations }))
         } catch {
           res.statusCode = 500
           res.setHeader('Content-Type', 'application/json')
@@ -423,6 +682,7 @@ export default defineConfig(({ mode }) => {
       react(),
       tailwindcss(),
       topicNextApiPlugin(),
+      materialsAnalyzePlugin(() => env.OPENAI_API_KEY),
       chatApiPlugin(() => env.OPENAI_API_KEY, () => env.OPENAI_MODEL),
     ],
     resolve: {

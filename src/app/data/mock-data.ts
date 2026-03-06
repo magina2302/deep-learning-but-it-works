@@ -1,3 +1,14 @@
+import type {
+  CitationRef,
+  ConfidenceLabel,
+  DiagnosticProfile,
+  DueReviewItem,
+  MasteryBreakdown,
+  MistakeRecord,
+  ReviewEvent,
+  WeeklyPlanBlock,
+} from "./learning-core";
+
 export interface Subtopic {
   id: string;
   name: string;
@@ -6,6 +17,16 @@ export interface Subtopic {
   attempts: number;
   completed: boolean;
   forgettingRisk: "low" | "medium" | "high";
+  reviewIntervalDays?: number;
+  lastReviewedAt?: string;
+  reviewDueAt?: string;
+  reviewHistory?: ReviewEvent[];
+  masteryHistory?: Array<{
+    recordedAt: string;
+    score: number;
+    reason: string;
+  }>;
+  sourceReferences?: CitationRef[];
 }
 
 export interface ErrorBreakdown {
@@ -21,6 +42,14 @@ export interface ChatAttachment {
   category: "Lecture" | "PYP" | "Tutorial" | "Labs";
   mimeType?: string;
   content?: string;
+  dataUrl?: string;
+}
+
+export interface AiMessageMeta {
+  confidence?: ConfidenceLabel;
+  confidenceReason?: string;
+  citations?: CitationRef[];
+  mode?: string;
 }
 
 export interface ChatMessage {
@@ -29,6 +58,7 @@ export interface ChatMessage {
   content: string;
   timestamp: Date;
   attachments?: ChatAttachment[];
+  meta?: AiMessageMeta;
 }
 
 export interface Module {
@@ -51,6 +81,18 @@ export interface Module {
   topicImportance: number;
   estimatedTimeToMastery: number;
   learningSummary: string[];
+  diagnostic?: DiagnosticProfile;
+  masteryBreakdown?: MasteryBreakdown;
+  mistakeHistory?: MistakeRecord[];
+  weeklyPlan?: WeeklyPlanBlock[];
+  nextActions?: string[];
+  dueToday?: DueReviewItem[];
+  accountability?: {
+    streakDays: number;
+    completedReviewDates: string[];
+    lastNudgeAt?: string;
+  };
+  lastCheckInAt?: string;
 }
 
 export interface StudentData {
@@ -96,6 +138,12 @@ export function createMockModuleWithHistory(): Module {
         attempts: 4,
         completed: true,
         forgettingRisk: "low",
+        reviewIntervalDays: 3,
+        lastReviewedAt: new Date(createdAt.getTime() - 1000 * 60 * 60 * 24).toISOString(),
+        reviewDueAt: new Date(createdAt.getTime() + 1000 * 60 * 60 * 24).toISOString(),
+        reviewHistory: [],
+        masteryHistory: [],
+        sourceReferences: [{ sourceName: "Signals and Systems Notes.pdf" }],
       },
       {
         id: "mock-subtopic-2",
@@ -105,6 +153,12 @@ export function createMockModuleWithHistory(): Module {
         attempts: 5,
         completed: false,
         forgettingRisk: "medium",
+        reviewIntervalDays: 1,
+        lastReviewedAt: new Date(createdAt.getTime() - 1000 * 60 * 60 * 24 * 2).toISOString(),
+        reviewDueAt: new Date(createdAt.getTime() - 1000 * 60 * 60 * 8).toISOString(),
+        reviewHistory: [],
+        masteryHistory: [],
+        sourceReferences: [{ sourceName: "Signals and Systems Notes.pdf" }],
       },
       {
         id: "mock-subtopic-3",
@@ -114,6 +168,12 @@ export function createMockModuleWithHistory(): Module {
         attempts: 3,
         completed: false,
         forgettingRisk: "medium",
+        reviewIntervalDays: 2,
+        lastReviewedAt: new Date(createdAt.getTime() - 1000 * 60 * 60 * 24 * 3).toISOString(),
+        reviewDueAt: new Date(createdAt.getTime() - 1000 * 60 * 60 * 24).toISOString(),
+        reviewHistory: [],
+        masteryHistory: [],
+        sourceReferences: [{ sourceName: "Signals and Systems Tutorial.pdf" }],
       },
     ],
     errorBreakdown: [
@@ -153,6 +213,47 @@ export function createMockModuleWithHistory(): Module {
         timestamp: new Date(createdAt.getTime() - 1000 * 60 * 27),
       },
     ],
+    diagnostic: {
+      goal: "Be exam-ready for the upcoming Signals and Systems assessment",
+      weeklyStudyMinutes: 180,
+      baselineConfidence: 58,
+      knownWeakAreas: ["Convolution", "LTI system response"],
+      createdAt: createdAt.toISOString(),
+      recommendedFocus: ["Convolution", "LTI system response"],
+      deadline: new Date(createdAt.getTime() + 1000 * 60 * 60 * 24 * 12).toISOString(),
+    },
+    masteryBreakdown: {
+      overall: 62,
+      retrieval: 60,
+      recency: 68,
+      completion: 56,
+      consistency: 63,
+      explanation: [
+        "Recent evidence is solid, but repeated convolution mistakes are still holding the score back.",
+      ],
+    },
+    mistakeHistory: [
+      {
+        id: "mock-mistake-1",
+        subtopicId: "mock-subtopic-2",
+        subtopicName: "Convolution",
+        createdAt: new Date(createdAt.getTime() - 1000 * 60 * 60 * 24).toISOString(),
+        severity: "high",
+        trigger: "Mixed up overlap boundaries in a recall question",
+        nextStep: "Redo one graph-based convolution question before moving on.",
+      },
+    ],
+    nextActions: [
+      "Clear the overdue Convolution review first.",
+      "Do one timed LTI response question after the review.",
+    ],
+    weeklyPlan: [],
+    dueToday: [],
+    accountability: {
+      streakDays: 2,
+      completedReviewDates: [new Date(createdAt.getTime() - 1000 * 60 * 60 * 24).toISOString()],
+    },
+    lastCheckInAt: createdAt.toISOString(),
   };
 }
 
@@ -210,6 +311,24 @@ export function createNewModule(name: string, subtitle: string, tags: string[], 
         timestamp: new Date(),
       },
     ],
+    diagnostic: undefined,
+    masteryBreakdown: {
+      overall: 0,
+      retrieval: 0,
+      recency: 0,
+      completion: 0,
+      consistency: 0,
+      explanation: ["No learning evidence yet. Complete diagnostic setup to personalize this module."],
+    },
+    mistakeHistory: [],
+    nextActions: ["Complete module setup so Gradify can build your study plan."],
+    weeklyPlan: [],
+    dueToday: [],
+    accountability: {
+      streakDays: 0,
+      completedReviewDates: [],
+    },
+    lastCheckInAt: undefined,
   };
 }
 
@@ -283,6 +402,12 @@ export function createInactiveReminderModule(): Module {
         attempts: 5,
         completed: false,
         forgettingRisk: "high",
+        reviewIntervalDays: 1,
+        lastReviewedAt: new Date(lastStudied.getTime() - 1000 * 60 * 60 * 24).toISOString(),
+        reviewDueAt: lastStudied.toISOString(),
+        reviewHistory: [],
+        masteryHistory: [],
+        sourceReferences: [{ sourceName: "Control Systems Notes.pdf" }],
       },
       {
         id: "inactive-subtopic-2",
@@ -292,6 +417,12 @@ export function createInactiveReminderModule(): Module {
         attempts: 4,
         completed: false,
         forgettingRisk: "high",
+        reviewIntervalDays: 1,
+        lastReviewedAt: new Date(lastStudied.getTime() - 1000 * 60 * 60 * 48).toISOString(),
+        reviewDueAt: lastStudied.toISOString(),
+        reviewHistory: [],
+        masteryHistory: [],
+        sourceReferences: [{ sourceName: "Control Systems Revision.pdf" }],
       },
     ],
     errorBreakdown: [
@@ -307,5 +438,41 @@ export function createInactiveReminderModule(): Module {
         timestamp: new Date(lastStudied.getTime() + 1000 * 60 * 3),
       },
     ],
+    diagnostic: {
+      goal: "Recover enough confidence to restart control systems revision",
+      weeklyStudyMinutes: 120,
+      baselineConfidence: 40,
+      knownWeakAreas: ["Time Response", "Stability Criteria"],
+      createdAt: lastStudied.toISOString(),
+      recommendedFocus: ["Time Response", "Stability Criteria"],
+    },
+    masteryBreakdown: {
+      overall: 43,
+      retrieval: 38,
+      recency: 20,
+      completion: 35,
+      consistency: 49,
+      explanation: ["Evidence is stale and both subtopics are overdue for review."],
+    },
+    mistakeHistory: [
+      {
+        id: "inactive-mistake-1",
+        subtopicId: "inactive-subtopic-1",
+        subtopicName: "Time Response",
+        createdAt: lastStudied.toISOString(),
+        severity: "high",
+        trigger: "Forgot how to interpret transient response graphs after inactivity",
+        nextStep: "Take a recovery quiz before doing new examples.",
+      },
+    ],
+    nextActions: ["Take the recovery quiz.", "Revisit the weakest control-systems graph question."],
+    weeklyPlan: [],
+    dueToday: [],
+    accountability: {
+      streakDays: 0,
+      completedReviewDates: [],
+      lastNudgeAt: lastStudied.toISOString(),
+    },
+    lastCheckInAt: lastStudied.toISOString(),
   };
 }
