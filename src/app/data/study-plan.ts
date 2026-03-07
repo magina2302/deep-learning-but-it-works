@@ -86,51 +86,7 @@ function pickTopSubtopics(module: Module): Subtopic[] {
     .slice(0, 3);
 }
 
-function getSignalsAndSystemsPreset(module: Module): StudyPlanItem[] {
-  return [
-    {
-      id: `${module.id}-preset-1`,
-      title: "Ultrasonic Sensor",
-      description: "You've made 11 mistakes here — mostly on distance calculation formulas. This needs the most attention. We will review the core concepts and work through the tricky parts step by step.",
-      minutes: 31,
-      status: "needs-work",
-    },
-    {
-      id: `${module.id}-preset-2`,
-      title: "IR Sensor & Temperature Sensor",
-      description: "You have a solid grasp on both IR and Temperature sensors. Spend only about 10 minutes here to recap the key points and make sure nothing slips.",
-      minutes: 18,
-      status: "developing",
-    },
-    {
-      id: `${module.id}-preset-break`,
-      title: "Break",
-      description: "Step away from your screen, stretch, grab some water. Your brain needs this to consolidate what you just studied.",
-      minutes: 10,
-      status: "break",
-    },
-    {
-      id: `${module.id}-preset-3`,
-      title: "Quiz — Complementary & Kalman Filters",
-      description: "We noticed you scored lower on filter concepts — your mastery for Kalman Filter is at 38% and you got 9 questions wrong in your last session on this. This quiz will target exactly those gaps. No notes allowed.",
-      minutes: 23,
-      status: "needs-work",
-    },
-    {
-      id: `${module.id}-preset-4`,
-      title: "Quiz Recap & Clarification",
-      description: "Go through your quiz answers and clarify anything you got wrong. Reinforce the correct understanding before your next session.",
-      minutes: 18,
-      status: "developing",
-    },
-  ];
-}
-
 export function recommendStudyPlan(module: Module, requestedMinutes: number): StudyPlanItem[] {
-  if (module.id === "mock-module-chat-history" || module.name === "Mock: Signals & Systems") {
-    return getSignalsAndSystemsPreset(module);
-  }
-
   const totalMinutes = Math.min(180, Math.max(30, Math.round(requestedMinutes || 90)));
   const includeBreak = totalMinutes >= 60;
   const split = distributeMinutes(totalMinutes, includeBreak);

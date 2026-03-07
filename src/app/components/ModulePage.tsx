@@ -51,7 +51,7 @@ export function ModulePage() {
       </div>
 
       <div className="relative z-10 shrink-0 border-b border-white/8 bg-black/8 backdrop-blur-xl">
-        <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-4 px-4 py-4 md:px-5">
+          <div className="mx-auto flex w-full max-w-[1800px] flex-col gap-4 px-4 py-4 md:px-5">
           <div className="flex items-start justify-between gap-4">
             <div className="flex items-center gap-3">
             <button
@@ -128,8 +128,8 @@ export function ModulePage() {
         </div>
       </div>
 
-      <div className="relative z-10 mx-auto flex min-h-0 w-full max-w-[1600px] flex-1 overflow-hidden px-4 pb-4 pt-4 md:px-5 md:pb-5">
-        <div className={`grid min-h-0 w-full gap-4 ${showMetrics ? "xl:grid-cols-[minmax(0,1.58fr)_360px]" : "grid-cols-1"}`}>
+      <div className="relative z-10 mx-auto flex min-h-0 w-full max-w-[1800px] flex-1 overflow-hidden px-4 pb-4 pt-4 md:px-5 md:pb-5">
+        <div className={`grid min-h-0 w-full gap-4 ${showMetrics ? "xl:grid-cols-[minmax(0,1.85fr)_340px]" : "grid-cols-1"}`}>
           <motion.div
             className="min-h-0 overflow-hidden rounded-[1.9rem] border border-white/10 bg-black/8 shadow-[0_22px_64px_rgba(0,0,0,0.16)] backdrop-blur-xl"
             initial={fromDashboard ? { opacity: 0, x: -18 } : false}

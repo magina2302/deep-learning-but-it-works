@@ -45,6 +45,7 @@ export interface MasteryBreakdown {
   recency: number;
   completion: number;
   consistency: number;
+  stability: number;
   explanation: string[];
 }
 
@@ -55,6 +56,7 @@ export interface DueReviewItem {
   subtopicName: string;
   dueDate: string;
   daysOverdue: number;
+  urgencyScore: number;
   priority: "high" | "medium" | "low";
   reason: string;
 }
@@ -219,6 +221,49 @@ function outcomeScore(outcome: ReviewOutcome): number {
   return 20;
 }
 
+function recentReviewScores(subtopic: Subtopic, limit = 3): number[] {
+  return (subtopic.reviewHistory || []).slice(-limit).map((event) => outcomeScore(event.outcome));
+}
+
+export function computeSubtopicStability(subtopic: Subtopic, now = new Date()): number {
+  const recentScores = recentReviewScores(subtopic, 3);
+  const lastReviewedAt = subtopic.lastReviewedAt ? new Date(subtopic.lastReviewedAt) : undefined;
+  const daysSinceReview = lastReviewedAt ? Math.max(0, Math.floor((now.getTime() - lastReviewedAt.getTime()) / 86400000)) : 7;
+  const attempts = Math.max(1, subtopic.attempts || 0);
+  const mistakePressure = clamp(((subtopic.mistakeCount || 0) / attempts) * 22, 0, 20);
+
+  if (recentScores.length === 0) {
+    return clamp(Math.round((subtopic.completed ? 52 : 36) + Math.max(0, 4 - daysSinceReview) * 2 - mistakePressure), 20, 72);
+  }
+
+  const spread = Math.max(...recentScores) - Math.min(...recentScores);
+  const mean = average(recentScores);
+  const recencyBonus = clamp(18 - daysSinceReview * 2.5, 0, 18);
+  const reviewCountBonus = recentScores.length * 5;
+
+  return clamp(Math.round(mean * 0.58 + recencyBonus + reviewCountBonus - spread * 0.32 - mistakePressure), 20, 100);
+}
+
+export function computeReviewUrgencyScore(subtopic: Subtopic, now = new Date()): number {
+  const dueAt = subtopic.reviewDueAt ? new Date(subtopic.reviewDueAt) : undefined;
+  const dueTime = dueAt?.getTime();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const daysOverdue = dueTime && !Number.isNaN(dueTime)
+    ? Math.max(0, Math.floor((today - dueTime) / 86400000))
+    : 0;
+  const masteryGap = 100 - computeSubtopicMastery(subtopic, now);
+  const stabilityGap = 100 - computeSubtopicStability(subtopic, now);
+  const recentOutcomes = recentReviewScores(subtopic, 2);
+  const missPressure = recentOutcomes.reduce((sum, score) => sum + (score <= 20 ? 14 : score <= 55 ? 7 : 0), 0);
+  const forgettingRiskWeight = subtopic.forgettingRisk === "high" ? 18 : subtopic.forgettingRisk === "medium" ? 10 : 4;
+
+  return clamp(
+    Math.round(daysOverdue * 18 + masteryGap * 0.4 + stabilityGap * 0.24 + forgettingRiskWeight + missPressure),
+    0,
+    100,
+  );
+}
+
 export function computeSubtopicMastery(subtopic: Subtopic, now = new Date()): number {
   const reviewScores = (subtopic.reviewHistory || []).slice(-5).map((event) => outcomeScore(event.outcome));
   const retrieval = reviewScores.length > 0 ? average(reviewScores) : subtopic.mastery || 25;
@@ -244,6 +289,7 @@ export function computeModuleMasteryBreakdown(module: Module, now = new Date()):
       recency: 40,
       completion: 20,
       consistency: 50,
+      stability: 35,
       explanation: [
         "No evidence has been collected yet, so mastery is currently based on diagnostic confidence.",
         "Start a review or upload study material to generate measurable subtopics.",
@@ -263,14 +309,16 @@ export function computeModuleMasteryBreakdown(module: Module, now = new Date()):
     const attempts = Math.max(1, subtopic.attempts || 0);
     return clamp(100 - ((subtopic.mistakeCount || 0) / attempts) * 50, 35, 100);
   }));
-  const overall = clamp(Math.round(retrieval * 0.38 + recency * 0.17 + completion * 0.17 + consistency * 0.28), 0, 100);
+  const stability = average(subtopics.map((subtopic) => computeSubtopicStability(subtopic, now)));
+  const overall = clamp(Math.round(retrieval * 0.3 + recency * 0.14 + completion * 0.14 + consistency * 0.22 + stability * 0.2), 0, 100);
 
   const weakest = [...subtopics].sort((left, right) => computeSubtopicMastery(left, now) - computeSubtopicMastery(right, now))[0];
   const dueCount = getDueTodayQueue([module], now).length;
   const explanation = [
-    `Mastery is evidence-based: retrieval ${Math.round(retrieval)}%, consistency ${Math.round(consistency)}%, completion ${Math.round(completion)}%, recency ${Math.round(recency)}%.`,
+    `Mastery is evidence-based: retrieval ${Math.round(retrieval)}%, consistency ${Math.round(consistency)}%, completion ${Math.round(completion)}%, recency ${Math.round(recency)}%, stability ${Math.round(stability)}%.`,
     weakest ? `${weakest.name} is the biggest drag on progress because it still has ${weakest.mistakeCount} mistakes recorded.` : "",
     dueCount > 0 ? `${dueCount} review item${dueCount === 1 ? " is" : "s are"} due today, so recent performance can improve quickly.` : "No reviews are due today, so the score is mostly shaped by past evidence.",
+    stability < 55 ? "Evidence is still fragile across sessions, so spaced recall should come before new content." : "Recent evidence is holding across sessions, so you can safely mix in harder retrieval.",
   ].filter(Boolean);
 
   return {
@@ -279,6 +327,7 @@ export function computeModuleMasteryBreakdown(module: Module, now = new Date()):
     recency: Math.round(recency),
     completion: Math.round(completion),
     consistency: Math.round(consistency),
+    stability: Math.round(stability),
     explanation,
   };
 }
@@ -387,9 +436,10 @@ export function getDueTodayQueue(modules: Module[], now = new Date()): DueReview
       const dueTime = new Date(subtopic.reviewDueAt).getTime();
       if (Number.isNaN(dueTime) || dueTime > today + 86399999) continue;
       const daysOverdue = Math.max(0, Math.floor((today - dueTime) / 86400000));
-      const priority = daysOverdue >= 2 || subtopic.forgettingRisk === "high"
+      const urgencyScore = computeReviewUrgencyScore(subtopic, now);
+      const priority = urgencyScore >= 78
         ? "high"
-        : subtopic.forgettingRisk === "medium" || daysOverdue === 1
+        : urgencyScore >= 52
           ? "medium"
           : "low";
 
@@ -400,31 +450,32 @@ export function getDueTodayQueue(modules: Module[], now = new Date()): DueReview
         subtopicName: subtopic.name,
         dueDate: subtopic.reviewDueAt,
         daysOverdue,
+        urgencyScore,
         priority,
         reason: daysOverdue > 0
           ? `Overdue by ${daysOverdue} day${daysOverdue === 1 ? "" : "s"}`
-          : `Due today because its review interval has elapsed`,
+          : urgencyScore >= 70
+            ? `Due today and fragile enough to need retrieval before new material`
+            : `Due today because its review interval has elapsed`,
       });
     }
   }
 
-  return items.sort((left, right) => {
-    const priorityOrder = { high: 0, medium: 1, low: 2 };
-    return priorityOrder[left.priority] - priorityOrder[right.priority] || right.daysOverdue - left.daysOverdue;
-  });
+  return items.sort((left, right) => right.urgencyScore - left.urgencyScore || right.daysOverdue - left.daysOverdue);
 }
 
 export function buildWeeklyPlanForModule(module: Module): WeeklyPlanBlock[] {
   const dueItems = getDueTodayQueue([module]);
   const plan: WeeklyPlanBlock[] = [];
   const weeklyMinutes = module.diagnostic?.weeklyStudyMinutes || 90;
+  const breakdown = module.masteryBreakdown || computeModuleMasteryBreakdown(module);
 
   if (dueItems.length > 0) {
     plan.push({
       id: makeId("plan-review"),
       moduleId: module.id,
-      title: `Clear ${Math.min(dueItems.length, 3)} due review item${dueItems.length === 1 ? "" : "s"}`,
-      reason: `Reviews due today directly improve evidence-based mastery for ${module.name}.`,
+      title: `Clear ${Math.min(dueItems.length, 3)} high-urgency review item${dueItems.length === 1 ? "" : "s"}`,
+      reason: `Reviews due today directly improve evidence-based mastery for ${module.name}; start with ${dueItems[0].subtopicName}.`,
       minutes: clamp(dueItems.length * 12, 15, 40),
       type: "review",
       isCompleted: false,
@@ -440,6 +491,18 @@ export function buildWeeklyPlanForModule(module: Module): WeeklyPlanBlock[] {
       reason: `${weakSpot.name} has the weakest mastery signal in this module.`,
       minutes: clamp(Math.round(weeklyMinutes * 0.35), 20, 60),
       type: "focus",
+      isCompleted: false,
+    });
+  }
+
+  if (breakdown.stability < 55 && weakSpot) {
+    plan.push({
+      id: makeId("plan-stability"),
+      moduleId: module.id,
+      title: `Stability check: ${weakSpot.name}`,
+      reason: `Your evidence is not holding across sessions yet, so do a short closed-book recall pass before deeper work.`,
+      minutes: clamp(Math.round(weeklyMinutes * 0.2), 12, 28),
+      type: "recovery",
       isCompleted: false,
     });
   }
@@ -462,12 +525,13 @@ export function buildWeeklyPlanForModule(module: Module): WeeklyPlanBlock[] {
 
 export function buildNextActions(module: Module): string[] {
   const breakdown = module.masteryBreakdown || computeModuleMasteryBreakdown(module);
-  const dueCount = getDueTodayQueue([module]).length;
+  const dueItems = getDueTodayQueue([module]);
+  const dueCount = dueItems.length;
   const weakest = [...(module.subtopics || [])].sort((left, right) => computeSubtopicMastery(left) - computeSubtopicMastery(right))[0];
   const actions = [
-    dueCount > 0 ? `Clear ${dueCount} due review item${dueCount === 1 ? "" : "s"} before starting new content.` : "No due reviews today; use the session to push one weak concept forward.",
+    dueCount > 0 ? `Clear ${dueItems[0].subtopicName} first; it has the highest urgency score in the queue.` : "No due reviews today; use the session to push one weak concept forward.",
     weakest ? `Target ${weakest.name} next because it has the weakest mastery signal.` : "Upload study material or add subtopics to create your first evidence trail.",
-    breakdown.recency < 55 ? "Recent evidence is stale. Do one recall check today to refresh your score." : "Recent evidence is healthy; keep reinforcing consistency.",
+    breakdown.stability < 55 ? "Your recall is not holding across sessions yet. Do one closed-book stability check before new material." : breakdown.recency < 55 ? "Recent evidence is stale. Do one recall check today to refresh your score." : "Recent evidence is healthy; keep reinforcing consistency.",
   ];
 
   if (module.diagnostic?.deadline) {

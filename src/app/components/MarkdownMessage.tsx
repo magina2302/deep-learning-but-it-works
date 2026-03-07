@@ -5,10 +5,45 @@ import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import "katex/dist/katex.min.css";
 
-function normalizeMathMarkdown(content: string): string {
+const BLOCK_MATH_ENV_PATTERN = String.raw`(?:array|matrix|pmatrix|bmatrix|Bmatrix|vmatrix|Vmatrix|smallmatrix|cases|aligned|align\*?|gather\*?)`;
+
+export function normalizeMathMarkdown(content: string): string {
   const normalizedDelimiters = content
-    .replace(/\\\[((?:.|\n)*?)\\\]/g, "$$$1$$")
-    .replace(/\\\(((?:.|\n)*?)\\\)/g, "$1$");
+    .replace(/\\\[((?:.|\n)*?)\\\]/g, (_match, block: string) => `$$${block}$$`)
+    .replace(/\\\(((?:.|\n)*?)\\\)/g, (_match, inline: string) => `$${inline}$`);
+
+  const protectedBlocks: string[] = [];
+  const mathLines = normalizedDelimiters.split("\n");
+  const protectedLines: string[] = [];
+  const complexMathStartRegex = new RegExp(String.raw`\\begin\{(?:${BLOCK_MATH_ENV_PATTERN})\}`);
+  const complexMathEndRegex = new RegExp(String.raw`\\end\{(?:${BLOCK_MATH_ENV_PATTERN})\}`);
+
+  for (let index = 0; index < mathLines.length; index += 1) {
+    const line = mathLines[index];
+
+    if (!complexMathStartRegex.test(line)) {
+      protectedLines.push(line);
+      continue;
+    }
+
+    const blockLines = [line];
+    while (index + 1 < mathLines.length && !complexMathEndRegex.test(mathLines[index])) {
+      index += 1;
+      blockLines.push(mathLines[index]);
+    }
+
+    const cleanedBlock = blockLines
+      .join("\n")
+      .replace(/^\s*\$\$?\s*/, "")
+      .replace(/\s*\$\$?\s*$/, "")
+      .trim();
+
+    const placeholder = `@@MATH_BLOCK_${protectedBlocks.length}@@`;
+    protectedBlocks.push(`$$${cleanedBlock}$$`);
+    protectedLines.push(placeholder);
+  }
+
+  const withProtectedMathBlocks = protectedLines.join("\n");
 
   const latexKeywordRegex = /\\(?:frac|dfrac|tfrac|sum|int|sqrt|alpha|beta|gamma|delta|theta|lambda|mu|pi|sigma|omega|sin|cos|tan|log|ln|cdot|times|leq|geq|neq|approx|infty)\b/;
 
@@ -74,7 +109,7 @@ function normalizeMathMarkdown(content: string): string {
     return output;
   };
 
-  return normalizedDelimiters
+  const normalizedContent = withProtectedMathBlocks
     .split("\n")
     .map((line) => {
       let nextLine = line;
@@ -137,6 +172,16 @@ function normalizeMathMarkdown(content: string): string {
       return nextLine;
     })
     .join("\n");
+
+  const restoredContent = protectedBlocks.reduce(
+    (result, block, index) => result.replace(`@@MATH_BLOCK_${index}@@`, block),
+    normalizedContent,
+  );
+
+  return restoredContent.replace(
+    new RegExp(String.raw`(^|\n)\$(\\begin\{(?:${BLOCK_MATH_ENV_PATTERN})\}[\s\S]*?\\end\{(?:${BLOCK_MATH_ENV_PATTERN})\})\$(?=\n|$)`, "g"),
+    (_match, prefix: string, block: string) => `${prefix}$$${block}$$`,
+  );
 }
 
 function MarkdownCode({ inline, className, children }: { inline?: boolean; className?: string; children?: ReactNode }) {

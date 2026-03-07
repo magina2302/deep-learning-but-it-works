@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
 import { supabase } from "../../supabase";
 import { useAuth } from "./AuthContext";
-import { AiMessageMeta, ChatAttachment, ChatMessage, Module, createInactiveReminderModule, createMockModuleWithHistory, createNewModule } from "../data/mock-data";
+import { AiMessageMeta, ChatAttachment, ChatMessage, Module, createDemoModule, createNewModule } from "../data/mock-data";
 import {
   CitationRef,
   DiagnosticProfile,
@@ -192,7 +192,7 @@ function getTopicRowId(row: any): string | undefined {
 }
 
 function isPersistedModule(moduleId: string): boolean {
-  return !moduleId.startsWith("mock-module-");
+  return moduleId !== "demo-module" && !moduleId.startsWith("mock-module-");
 }
 
 function isUuid(value: string): boolean {
@@ -664,7 +664,7 @@ export function ModulesProvider({ children }: { children: ReactNode }) {
       );
 
       if (topics.length === 0) {
-        const baseModules = [createMockModuleWithHistory(), createInactiveReminderModule()];
+        const baseModules = [createDemoModule()];
         setModules(baseModules);
         setLoading(false);
         return;
@@ -828,10 +828,9 @@ export function ModulesProvider({ children }: { children: ReactNode }) {
       });
 
       const merged = [...loaded];
-      for (const mockModule of [createMockModuleWithHistory(), createInactiveReminderModule()]) {
-        if (!merged.some((moduleItem) => moduleItem.id === mockModule.id)) {
-          merged.unshift(mockModule);
-        }
+      const demoModule = createDemoModule();
+      if (!merged.some((moduleItem) => moduleItem.id === demoModule.id)) {
+        merged.unshift(demoModule);
       }
 
       setModules(merged);
@@ -899,7 +898,7 @@ export function ModulesProvider({ children }: { children: ReactNode }) {
   const deleteModule = async (id: string) => {
     if (!user) return;
 
-    if (id === "mock-module-chat-history" || id === "mock-module-inactive-5-days") {
+    if (id === "demo-module") {
       updateModules((previous) => previous.filter((moduleItem) => moduleItem.id !== id));
       return;
     }

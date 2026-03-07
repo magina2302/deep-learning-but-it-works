@@ -41,6 +41,8 @@ const makeStoryImage = (colorA: string, colorB: string, accent: string) =>
 
 const heroImage = makeStoryImage("#25134f", "#070d1b", "#ff7541");
 
+const averageNumber = (values: number[]) => (values.length > 0 ? Math.round(values.reduce((sum, value) => sum + value, 0) / values.length) : 0);
+
 export function Dashboard() {
   const navigate = useNavigate();
   const { modules, addModule, deleteModule, recordCoachNudge } = useModules();
@@ -76,6 +78,41 @@ export function Dashboard() {
   const completedPlanBlocks = modules.reduce(
     (sum, moduleItem) => sum + (moduleItem.weeklyPlan || []).filter((block) => block.isCompleted).length,
     0,
+  );
+  const aggregateSignals = {
+    retrieval: averageNumber(modules.map((moduleItem) => moduleItem.masteryBreakdown?.retrieval ?? moduleItem.overallMastery)),
+    recency: averageNumber(modules.map((moduleItem) => moduleItem.masteryBreakdown?.recency ?? Math.max(24, 100 - getDaysInactive(moduleItem.lastStudied) * 12))),
+    consistency: averageNumber(modules.map((moduleItem) => moduleItem.masteryBreakdown?.consistency ?? Math.max(35, moduleItem.overallMastery))),
+    stability: averageNumber(modules.map((moduleItem) => moduleItem.masteryBreakdown?.stability ?? Math.max(28, 100 - getDaysInactive(moduleItem.lastStudied) * 10))),
+  };
+  const focusSignals = [
+    {
+      label: "Retrieval",
+      value: focusModule?.masteryBreakdown?.retrieval ?? aggregateSignals.retrieval,
+      color: "#FF7541",
+      note: "Can you pull it back without notes?",
+    },
+    {
+      label: "Recency",
+      value: focusModule?.masteryBreakdown?.recency ?? aggregateSignals.recency,
+      color: "#38bdf8",
+      note: "How fresh is the latest evidence?",
+    },
+    {
+      label: "Consistency",
+      value: focusModule?.masteryBreakdown?.consistency ?? aggregateSignals.consistency,
+      color: "#10b981",
+      note: "How often do mistakes repeat?",
+    },
+    {
+      label: "Stability",
+      value: focusModule?.masteryBreakdown?.stability ?? aggregateSignals.stability,
+      color: "#DE6AE4",
+      note: "Does learning hold across sessions?",
+    },
+  ];
+  const averageUrgency = averageNumber(
+    dueTodayItems.map((item) => item.urgencyScore ?? (item.priority === "high" ? 84 : item.priority === "medium" ? 60 : 36)),
   );
 
   const statusConfig: Record<string, { dot: string }> = {
@@ -184,15 +221,51 @@ export function Dashboard() {
                 </p>
                 <div className="mt-6 grid gap-3 sm:grid-cols-3">
                   {[
-                    { label: "Due now", value: `${dueTodayItems.length}` },
-                    { label: "Overall mastery", value: `${totalMastery}%` },
-                    { label: "Modules", value: `${modules.length}` },
-                  ].map((item) => (
-                    <div key={item.label} className="rounded-2xl border border-white/10 bg-black/16 px-4 py-3">
-                      <p className="text-white/58" style={{ fontSize: "0.66rem", letterSpacing: "0.12em", textTransform: "uppercase" }}>{item.label}</p>
-                      <p className="mt-1 text-white" style={{ fontSize: "1.7rem", lineHeight: "1.1" }}>{item.value}</p>
-                    </div>
-                  ))}
+                    {
+                      label: "Due now",
+                      display: `${dueTodayItems.length}`,
+                      pct: totalSubtopics > 0 ? Math.min((dueTodayItems.length / totalSubtopics) * 100, 100) : 0,
+                      color: "#FF7541",
+                    },
+                    {
+                      label: "Overall mastery",
+                      display: `${totalMastery}%`,
+                      pct: totalMastery,
+                      color: "#10b981",
+                    },
+                    {
+                      label: "Modules",
+                      display: `${modules.length}`,
+                      pct: totalSubtopics > 0 ? (totalCompleted / totalSubtopics) * 100 : 0,
+                      color: "#B352D7",
+                      sub: `${totalCompleted}/${totalSubtopics} covered`,
+                    },
+                  ].map((item) => {
+                    const r = 28;
+                    const circ = 2 * Math.PI * r;
+                    return (
+                      <div key={item.label} className="rounded-2xl border border-white/10 bg-black/16 px-4 py-4 flex items-center gap-4">
+                        <svg viewBox="0 0 72 72" className="w-16 h-16 shrink-0" style={{ transform: "rotate(-90deg)" }}>
+                          <circle cx="36" cy="36" r={r} fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="5" />
+                          <circle
+                            cx="36" cy="36" r={r} fill="none"
+                            stroke={item.color} strokeWidth="5" strokeLinecap="round"
+                            strokeDasharray={`${(item.pct / 100) * circ} ${circ}`}
+                            style={{ transition: "stroke-dasharray 0.8s ease" }}
+                          />
+                        </svg>
+                        <div>
+                          <p className="text-white/58" style={{ fontSize: "0.66rem", letterSpacing: "0.12em", textTransform: "uppercase" }}>
+                            {item.label}
+                          </p>
+                          <p className="mt-1 text-white" style={{ fontSize: "1.7rem", lineHeight: "1.1" }}>{item.display}</p>
+                          {item.sub && (
+                            <p className="mt-0.5 text-white/50" style={{ fontSize: "0.6rem" }}>{item.sub}</p>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
                 <motion.div
                   className="mt-8 flex flex-wrap gap-3"
@@ -231,7 +304,7 @@ export function Dashboard() {
                   <p className="text-white/66" style={{ fontSize: "0.7rem", letterSpacing: "0.14em", textTransform: "uppercase" }}>
                     Focus module
                   </p>
-                  <div className="mt-3 flex items-start justify-between gap-4">
+                  <div className="mt-4 flex items-start justify-between gap-4">
                     <div>
                       <h3 className="text-white">{focusModule?.name || "No module yet"}</h3>
                       <p className="mt-1 text-white/72" style={{ fontSize: "0.78rem", lineHeight: "1.6" }}>
@@ -252,27 +325,47 @@ export function Dashboard() {
                       </button>
                     )}
                   </div>
-                </div>
-                <div className="rounded-[1.8rem] border border-white/10 bg-white/8 p-5 text-white backdrop-blur-xl">
-                  <p className="text-white/66" style={{ fontSize: "0.7rem", letterSpacing: "0.14em", textTransform: "uppercase" }}>
-                    Next move
-                  </p>
-                  <div className="mt-4 space-y-3">
-                    <div className="rounded-2xl border border-white/8 bg-black/18 px-4 py-3">
-                      <p className="text-white/60" style={{ fontSize: "0.66rem", textTransform: "uppercase", letterSpacing: "0.12em" }}>Weak spots</p>
-                      <p className="mt-1 text-white" style={{ fontSize: "1.3rem", lineHeight: "1.2" }}>
-                        {weakestModule ? getWeakSpots(weakestModule.subtopics).length : 0}
-                      </p>
-                      <p className="mt-1 text-white/72" style={{ fontSize: "0.74rem", lineHeight: "1.5" }}>
-                        {weakestModule ? `${weakestModule.name} needs the most attention right now.` : "Add a module to start tracking weak areas."}
-                      </p>
+                  <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                    <div className="rounded-2xl border border-white/8 bg-white/6 px-4 py-3">
+                      <p className="text-white/56" style={{ fontSize: "0.64rem", letterSpacing: "0.12em", textTransform: "uppercase" }}>Signal mix</p>
+                      <div className="mt-3 flex items-end gap-2">
+                        {focusSignals.map((signal) => (
+                          <div key={signal.label} className="flex-1">
+                            <div className="mx-auto flex h-20 w-7 items-end overflow-hidden rounded-full bg-white/8">
+                              <div className="w-full rounded-full" style={{ height: `${signal.value}%`, background: `linear-gradient(180deg, ${signal.color}, ${signal.color}aa)` }} />
+                            </div>
+                            <p className="mt-2 text-center text-white/64" style={{ fontSize: "0.58rem" }}>{signal.label.slice(0, 4)}</p>
+                          </div>
+                        ))}
+                      </div>
                     </div>
-                    <div className="rounded-2xl border border-white/8 bg-black/18 px-4 py-3">
-                      <p className="text-white/60" style={{ fontSize: "0.66rem", textTransform: "uppercase", letterSpacing: "0.12em" }}>Plan blocks completed</p>
-                      <p className="mt-1 text-white" style={{ fontSize: "1.3rem", lineHeight: "1.2" }}>{completedPlanBlocks}</p>
-                      <p className="mt-1 text-white/72" style={{ fontSize: "0.74rem", lineHeight: "1.5" }}>
-                        Weekly plan completion is now persistent across refreshes.
-                      </p>
+                    <div className="rounded-2xl border border-white/8 bg-white/6 px-4 py-3">
+                      <p className="text-white/56" style={{ fontSize: "0.64rem", letterSpacing: "0.12em", textTransform: "uppercase" }}>Intervention board</p>
+                      <div className="mt-3 space-y-3">
+                        <div>
+                          <div className="flex items-center justify-between gap-3">
+                            <span className="text-white/82" style={{ fontSize: "0.72rem" }}>Queue pressure</span>
+                            <span className="text-white" style={{ fontSize: "0.76rem" }}>{averageUrgency}%</span>
+                          </div>
+                          <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-white/8">
+                            <div className="h-full rounded-full" style={{ width: `${averageUrgency}%`, background: "linear-gradient(90deg, #FF7541, #DE6AE4)" }} />
+                          </div>
+                        </div>
+                        <div className="rounded-xl border border-white/8 bg-black/18 px-3 py-3">
+                          <p className="text-white/60" style={{ fontSize: "0.62rem", letterSpacing: "0.12em", textTransform: "uppercase" }}>Weak spots</p>
+                          <p className="mt-1 text-white" style={{ fontSize: "1.15rem", lineHeight: "1.1" }}>{weakestModule ? getWeakSpots(weakestModule.subtopics).length : 0}</p>
+                          <p className="mt-1 text-white/70" style={{ fontSize: "0.66rem", lineHeight: "1.45" }}>
+                            {weakestModule ? `${weakestModule.name} needs the most attention right now.` : "Add a module to start tracking weak areas."}
+                          </p>
+                        </div>
+                        <div className="rounded-xl border border-white/8 bg-black/18 px-3 py-3">
+                          <p className="text-white/60" style={{ fontSize: "0.62rem", letterSpacing: "0.12em", textTransform: "uppercase" }}>Plan blocks completed</p>
+                          <p className="mt-1 text-white" style={{ fontSize: "1.15rem", lineHeight: "1.1" }}>{completedPlanBlocks}</p>
+                          <p className="mt-1 text-white/70" style={{ fontSize: "0.66rem", lineHeight: "1.45" }}>
+                            Weekly plan completion is now persistent across refreshes.
+                          </p>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -321,47 +414,29 @@ export function Dashboard() {
           <div className="rounded-2xl border border-[var(--border)] bg-[var(--card)] p-5">
             <div className="flex items-center justify-between gap-3 mb-3">
               <div>
-                <h3>Due Today Review Queue</h3>
+                <h3>Intervention Board</h3>
                 <p className="text-muted-foreground" style={{ fontSize: "0.72rem" }}>
-                  Evidence-backed mastery only moves when reviews are completed.
+                  Retrieval science works best when the system reacts to urgency, stability, and weak-signal drift.
                 </p>
               </div>
               <span className="px-2.5 py-1 rounded-lg bg-[var(--accent)] text-muted-foreground" style={{ fontSize: "0.7rem" }}>
-                {dueTodayItems.length} due
+                {averageUrgency}% avg urgency
               </span>
             </div>
-            {dueTodayItems.length === 0 ? (
-              <p className="text-muted-foreground" style={{ fontSize: "0.8rem", lineHeight: "1.5" }}>
-                Nothing is due right now. Use this session to upload new material or strengthen a weak concept.
-              </p>
-            ) : (
-              <div className="space-y-2.5">
-                {dueTodayItems.slice(0, 4).map((item) => (
-                  <button
-                    key={`${item.moduleId}-${item.subtopicId}`}
-                    onClick={() => openModule(item.moduleId)}
-                    className="w-full text-left rounded-xl border border-[var(--border)] bg-[var(--background)] px-4 py-3 hover:border-[var(--muted-foreground)] transition-colors cursor-pointer"
-                  >
-                    <div className="flex items-center justify-between gap-3 mb-1">
-                      <span className="text-foreground" style={{ fontSize: "0.82rem" }}>{item.subtopicName}</span>
-                      <span
-                        className="px-2 py-0.5 rounded-full"
-                        style={{
-                          fontSize: "0.6rem",
-                          backgroundColor: item.priority === "high" ? "rgba(239,68,68,0.12)" : item.priority === "medium" ? "rgba(245,158,11,0.12)" : "rgba(16,185,129,0.12)",
-                          color: item.priority === "high" ? "#ef4444" : item.priority === "medium" ? "#f59e0b" : "#10b981",
-                        }}
-                      >
-                        {item.priority}
-                      </span>
-                    </div>
-                    <p className="text-muted-foreground" style={{ fontSize: "0.7rem", lineHeight: "1.45" }}>
-                      {item.moduleName} · {item.reason}
-                    </p>
-                  </button>
-                ))}
-              </div>
-            )}
+            <div className="grid gap-3 sm:grid-cols-2">
+              {focusSignals.map((signal) => (
+                <div key={signal.label} className="rounded-xl border border-[var(--border)] bg-[var(--background)] px-4 py-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-foreground" style={{ fontSize: "0.8rem" }}>{signal.label}</span>
+                    <span style={{ fontSize: "0.74rem", color: signal.color }}>{signal.value}%</span>
+                  </div>
+                  <div className="mt-2 h-2 overflow-hidden rounded-full bg-[var(--accent)]">
+                    <div className="h-full rounded-full" style={{ width: `${signal.value}%`, background: `linear-gradient(90deg, ${signal.color}, ${signal.color}bb)` }} />
+                  </div>
+                  <p className="mt-2 text-muted-foreground" style={{ fontSize: "0.68rem", lineHeight: "1.45" }}>{signal.note}</p>
+                </div>
+              ))}
+            </div>
           </div>
 
           <div className="rounded-2xl border border-[var(--border)] bg-[var(--card)] p-5">

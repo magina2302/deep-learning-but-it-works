@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, lazy, Suspense } from "react";
-import { Bot, CheckCircle2, ClipboardPaste, FileText, Paperclip, Send, Sparkles, User, X } from "lucide-react";
+import { Bot, CheckCircle2, ChevronDown, ChevronUp, ClipboardPaste, FileText, ListChecks, Paperclip, Send, Sparkles, User, X } from "lucide-react";
 import type { Module, ChatAttachment, ChatMessage } from "../data/mock-data";
 import type { CitationRef, ReviewOutcome } from "../data/learning-core";
 import { getDaysInactive, getWeakSpots } from "../data/mock-data";
@@ -7,6 +7,7 @@ import { FileUploadModal } from "./FileUploadModal";
 import { useAuth } from "./AuthContext";
 import { useModules } from "./ModulesContext";
 import { motion } from "motion/react";
+import { mcpContextualize } from "../../mcp/client";
 
 const MarkdownMessage = lazy(() => import("./MarkdownMessage"));
 
@@ -85,6 +86,35 @@ function errorPatternLabel(type: ErrorPatternType): string {
   }
 }
 
+interface ParsedMcqOption {
+  letter: string;
+  text: string;
+}
+
+function parseMcqOptions(content: string): { question: string; options: ParsedMcqOption[] } | null {
+  const optionPattern = /^([A-D])[).\]]\s*(.+)/;
+  const lines = content.split("\n");
+  const options: ParsedMcqOption[] = [];
+  const questionLines: string[] = [];
+  let foundOptions = false;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    const match = trimmed.match(optionPattern);
+    if (match) {
+      foundOptions = true;
+      options.push({ letter: match[1], text: match[2].trim() });
+    } else if (!foundOptions) {
+      questionLines.push(line);
+    }
+  }
+
+  if (options.length >= 2 && options.length <= 6) {
+    return { question: questionLines.join("\n").trim(), options };
+  }
+  return null;
+}
+
 async function blobToDataUrl(blob: Blob): Promise<string | undefined> {
   return new Promise((resolve) => {
     const reader = new FileReader();
@@ -146,6 +176,8 @@ export function ChatPanel({ module, startRecoveryQuiz = false }: ChatPanelProps)
   const [errorPatterns, setErrorPatterns] = useState<ErrorPattern[]>([]);
   const [clipboardHint, setClipboardHint] = useState<string | null>(null);
   const [sessionMode, setSessionMode] = useState<SessionMode>("coach");
+  const [answeredMcqs, setAnsweredMcqs] = useState<Set<string>>(new Set());
+  const [headerExpanded, setHeaderExpanded] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const recoveryQuizSentForModuleRef = useRef<string | null>(null);
 
@@ -411,11 +443,40 @@ export function ChatPanel({ module, startRecoveryQuiz = false }: ChatPanelProps)
     ingestStudyMaterials(module.id, attachments, extractedSubtopics);
 
     const createdTopics = Object.values(extractedSubtopics).flat().slice(0, 6);
-    if (createdTopics.length > 0) {
+
+    // Run MCP contextualization against existing subtopics
+    const textContent = attachments.map((a) => a.content || "").filter(Boolean).join("\n\n");
+    let contextNote = "";
+    if (textContent.length > 20 && module.subtopics.length > 0) {
+      try {
+        const ctx = await mcpContextualize(
+          textContent,
+          module.name,
+          module.subtopics.map((s) => ({ name: s.name, mastery: s.mastery })),
+        );
+        const parts: string[] = [];
+        if (ctx.matches.length > 0) {
+          parts.push(`Relevant to: ${ctx.matches.slice(0, 3).map((m) => `${m.subtopic} (${m.relevance}%)`).join(", ")}`);
+        }
+        if (ctx.newSuggestions.length > 0) {
+          parts.push(`New areas detected: ${ctx.newSuggestions.join(", ")}`);
+        }
+        if (ctx.gaps.length > 0) {
+          parts.push(`Not covered (still weak): ${ctx.gaps.join(", ")}`);
+        }
+        if (parts.length > 0) contextNote = "\n\n" + parts.join(". ") + ".";
+      } catch {
+        // Contextualization is optional — continue silently
+      }
+    }
+
+    if (createdTopics.length > 0 || contextNote) {
       const materialMessage: ChatMessage = {
         id: crypto.randomUUID(),
         role: "ai",
-        content: `I parsed your new material and extracted these study subtopics: ${createdTopics.join(", ")}. They are now part of your review system.`,
+        content: createdTopics.length > 0
+          ? `I parsed your new material and extracted these study subtopics: ${createdTopics.join(", ")}. They are now part of your review system.${contextNote}`
+          : `I analyzed your uploaded material against your existing subtopics.${contextNote}`,
         timestamp: new Date(),
         meta: {
           confidence: "high",
@@ -476,6 +537,34 @@ export function ChatPanel({ module, startRecoveryQuiz = false }: ChatPanelProps)
     await handleFileUpload(nextAttachments);
   };
 
+  const handleGenerateSubtopicsFromUploads = async () => {
+    if (pendingAttachments.length === 0) return;
+
+    const extractedSubtopics = await analyzeAttachments(module.name, pendingAttachments);
+    ingestStudyMaterials(module.id, pendingAttachments, extractedSubtopics);
+
+    const createdTopics = Object.values(extractedSubtopics).flat().slice(0, 8);
+    const materialMessage: ChatMessage = {
+      id: crypto.randomUUID(),
+      role: "ai",
+      content: createdTopics.length > 0
+        ? `I extracted these subtopics from your uploads: **${createdTopics.join("**, **")}**.\n\nThey are now part of your review system. You can upload more files later to add additional subtopics at any time.`
+        : "I processed your uploads but couldn't extract distinct subtopics. Try uploading lecture slides or notes with clearer headings, or add subtopics manually from the module creation screen.",
+      timestamp: new Date(),
+      meta: {
+        confidence: createdTopics.length > 0 ? "high" : "medium",
+        confidenceReason: createdTopics.length > 0
+          ? "Subtopics were extracted directly from uploaded material."
+          : "No strong subtopic candidates were found in the uploaded content.",
+        citations: pendingAttachments.slice(0, 2).map((a) => ({ sourceName: a.name })),
+        mode: "subtopic-generation",
+      },
+    };
+    setMessages((prev) => [...prev, materialMessage]);
+    await appendChatMessages(module.id, [materialMessage]);
+    setPendingAttachments([]);
+  };
+
   const removePendingAttachment = (id: string) => {
     setPendingAttachments((previous) => previous.filter((attachment) => attachment.id !== id));
   };
@@ -522,130 +611,154 @@ export function ChatPanel({ module, startRecoveryQuiz = false }: ChatPanelProps)
 
   return (
     <div className="flex h-full flex-col bg-transparent">
-      <div className="border-b border-white/8 bg-black/8 px-5 pb-4 pt-4 backdrop-blur-xl">
-        <div className="grid gap-3 xl:grid-cols-[minmax(0,1.14fr)_minmax(320px,0.86fr)]">
-          <motion.div
-            className="rounded-[1.6rem] border border-white/10 bg-white/6 p-4 backdrop-blur-sm"
-            initial={{ opacity: 0, y: 14 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
-          >
-            <div className="flex items-start justify-between gap-3">
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 bg-white/10">
-                <Sparkles className="w-4 h-4 text-white" />
-              </div>
-                <div>
-                  <p className="text-muted-foreground" style={{ fontSize: "0.64rem", letterSpacing: "0.12em", textTransform: "uppercase" }}>
-                    Workspace coach
-                  </p>
-                  <h3 className="text-foreground">AI Tutor</h3>
-                  <p className="text-muted-foreground" style={{ fontSize: "0.7rem", lineHeight: "1.5" }}>
-                    Evidence-backed replies, review controls, and grounded sources stay in one place.
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="rounded-lg border border-white/10 bg-black/16 px-2.5 py-1 text-foreground" style={{ fontSize: "0.65rem" }}>
-                  Streak {streakDays}d
+      <div className="border-b border-white/8 bg-black/8 backdrop-blur-xl">
+        {/* Compact header bar */}
+        <button
+          type="button"
+          onClick={() => setHeaderExpanded((p) => !p)}
+          className="flex w-full items-center justify-between px-5 py-2.5 cursor-pointer hover:bg-white/4 transition-colors"
+        >
+          <div className="flex items-center gap-3">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 bg-white/10">
+              <Sparkles className="w-3.5 h-3.5 text-white" />
+            </div>
+            <div className="flex items-center gap-3">
+              <span className="text-foreground font-medium" style={{ fontSize: "0.82rem" }}>AI Tutor</span>
+              <span className="rounded-md border border-white/10 bg-black/16 px-2 py-0.5 text-muted-foreground" style={{ fontSize: "0.6rem" }}>
+                Streak {streakDays}d
+              </span>
+              <span
+                className="rounded-md px-2 py-0.5"
+                style={{
+                  fontSize: "0.6rem",
+                  backgroundColor: needsTrustNudge ? "rgba(239,68,68,0.12)" : "rgba(16,185,129,0.12)",
+                  color: needsTrustNudge ? "#ef4444" : "#10b981",
+                }}
+              >
+                {needsTrustNudge ? "Needs grounding" : "Grounded"}
+              </span>
+              {!checkedInToday && (
+                <span className="rounded-md px-2 py-0.5 bg-amber-500/12 text-amber-400" style={{ fontSize: "0.6rem" }}>
+                  Not checked in
                 </span>
-                <button
-                  type="button"
-                  onClick={() => setShowPersonaEditor((previous) => !previous)}
-                  className="rounded-lg border border-white/10 bg-black/16 px-2.5 py-1 text-foreground cursor-pointer"
-                  style={{ fontSize: "0.65rem" }}
-                >
-                  Persona
-                </button>
-              </div>
-            </div>
-          </motion.div>
-
-          <motion.div
-            className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1"
-            initial={{ opacity: 0, y: 14 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.04, duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
-          >
-            <div className="rounded-[1.5rem] border border-white/10 bg-white/6 p-3 backdrop-blur-sm">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-muted-foreground" style={{ fontSize: "0.64rem", letterSpacing: "0.12em", textTransform: "uppercase" }}>
-                    Daily rhythm
-                  </p>
-                  <p className="mt-1 text-foreground" style={{ fontSize: "0.74rem", lineHeight: "1.5" }}>
-                    {checkedInToday
-                      ? `Checked in today${module.lastCheckInAt ? ` at ${new Date(module.lastCheckInAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : ""}.`
-                      : "Mark today as active to keep this module inside your current study loop."}
-                  </p>
-                  {nextOpenPlanBlock && (
-                    <p className="mt-2 text-muted-foreground" style={{ fontSize: "0.66rem", lineHeight: "1.45" }}>
-                      Next block: {nextOpenPlanBlock.title} ({nextOpenPlanBlock.minutes} mins)
-                    </p>
-                  )}
-                </div>
-                <button
-                  type="button"
-                  onClick={() => void markModuleCheckIn(module.id)}
-                  disabled={checkedInToday}
-                  className="rounded-lg px-3 py-1.5 text-white disabled:opacity-40 cursor-pointer"
-                  style={{ fontSize: "0.66rem", background: "linear-gradient(135deg, #d96a42, #8c58c7)" }}
-                >
-                  {checkedInToday ? "Checked" : "Check in"}
-                </button>
-              </div>
-            </div>
-
-            <div className="rounded-[1.5rem] border border-white/10 bg-white/6 p-3 backdrop-blur-sm">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-muted-foreground" style={{ fontSize: "0.64rem", letterSpacing: "0.12em", textTransform: "uppercase" }}>
-                    Trust signal
-                  </p>
-                  <p className="mt-1 text-foreground" style={{ fontSize: "0.74rem", lineHeight: "1.5" }}>
-                    {latestAiMessage
-                      ? needsTrustNudge
-                        ? "Latest answer needs grounding before you rely on it."
-                        : `Latest answer is grounded with ${latestAiCitations.length} source reference${latestAiCitations.length === 1 ? "" : "s"}.`
-                      : "Trust indicators appear after the coach replies."}
-                  </p>
-                </div>
-                <span
-                  className="rounded-lg px-2 py-1"
-                  style={{
-                    fontSize: "0.62rem",
-                    backgroundColor: needsTrustNudge ? "rgba(239,68,68,0.12)" : "rgba(16,185,129,0.12)",
-                    color: needsTrustNudge ? "#ef4444" : "#10b981",
-                  }}
-                >
-                  {needsTrustNudge ? "Needs grounding" : "Grounded"}
-                </span>
-              </div>
-            </div>
-          </motion.div>
-        </div>
-
-        {topDueReview && (
-          <div className="mt-3 rounded-[1.5rem] border border-white/10 bg-white/6 p-3 backdrop-blur-sm">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="text-muted-foreground" style={{ fontSize: "0.64rem", letterSpacing: "0.12em", textTransform: "uppercase" }}>
-                  Due queue
-                </p>
-                <p className="mt-1 text-foreground" style={{ fontSize: "0.82rem" }}>
-                  Due today: <span style={{ color: module.color }}>{topDueReview.subtopicName}</span>
-                </p>
-                <p className="text-muted-foreground" style={{ fontSize: "0.7rem", lineHeight: "1.45" }}>
-                  {topDueReview.reason}. Log the outcome so mastery updates from evidence, not chat volume.
-                </p>
-              </div>
-              <div className="flex gap-2 shrink-0">
-                <button onClick={() => submitReviewOutcome("mastered")} className="px-2.5 py-1.5 rounded-lg text-white cursor-pointer" style={{ fontSize: "0.68rem", backgroundColor: "#10b981" }}>Mastered</button>
-                <button onClick={() => submitReviewOutcome("struggled")} className="px-2.5 py-1.5 rounded-lg text-white cursor-pointer" style={{ fontSize: "0.68rem", backgroundColor: "#f59e0b" }}>Struggled</button>
-                <button onClick={() => submitReviewOutcome("missed")} className="px-2.5 py-1.5 rounded-lg text-white cursor-pointer" style={{ fontSize: "0.68rem", backgroundColor: "#ef4444" }}>Missed</button>
-              </div>
+              )}
             </div>
           </div>
+          {headerExpanded ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
+        </button>
+
+        {/* Expandable detail panel */}
+        {headerExpanded && (
+          <motion.div
+            className="px-5 pb-4"
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+          >
+            <div className="grid gap-3 xl:grid-cols-[minmax(0,1.14fr)_minmax(320px,0.86fr)]">
+              <div className="rounded-[1.4rem] border border-white/10 bg-white/6 p-3.5 backdrop-blur-sm">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-muted-foreground" style={{ fontSize: "0.64rem", letterSpacing: "0.12em", textTransform: "uppercase" }}>
+                      Workspace coach
+                    </p>
+                    <p className="text-muted-foreground mt-1" style={{ fontSize: "0.7rem", lineHeight: "1.5" }}>
+                      Evidence-backed replies, review controls, and grounded sources stay in one place.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); setShowPersonaEditor((previous) => !previous); }}
+                    className="rounded-lg border border-white/10 bg-black/16 px-2.5 py-1 text-foreground cursor-pointer shrink-0"
+                    style={{ fontSize: "0.65rem" }}
+                  >
+                    Persona
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
+                <div className="rounded-[1.4rem] border border-white/10 bg-white/6 p-3 backdrop-blur-sm">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-muted-foreground" style={{ fontSize: "0.64rem", letterSpacing: "0.12em", textTransform: "uppercase" }}>
+                        Daily rhythm
+                      </p>
+                      <p className="mt-1 text-foreground" style={{ fontSize: "0.74rem", lineHeight: "1.5" }}>
+                        {checkedInToday
+                          ? `Checked in today${module.lastCheckInAt ? ` at ${new Date(module.lastCheckInAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : ""}.`
+                          : "Mark today as active to keep this module inside your current study loop."}
+                      </p>
+                      {nextOpenPlanBlock && (
+                        <p className="mt-2 text-muted-foreground" style={{ fontSize: "0.66rem", lineHeight: "1.45" }}>
+                          Next block: {nextOpenPlanBlock.title} ({nextOpenPlanBlock.minutes} mins)
+                        </p>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); void markModuleCheckIn(module.id); }}
+                      disabled={checkedInToday}
+                      className="rounded-lg px-3 py-1.5 text-white disabled:opacity-40 cursor-pointer shrink-0"
+                      style={{ fontSize: "0.66rem", background: "linear-gradient(135deg, #d96a42, #8c58c7)" }}
+                    >
+                      {checkedInToday ? "Checked" : "Check in"}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="rounded-[1.4rem] border border-white/10 bg-white/6 p-3 backdrop-blur-sm">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-muted-foreground" style={{ fontSize: "0.64rem", letterSpacing: "0.12em", textTransform: "uppercase" }}>
+                        Trust signal
+                      </p>
+                      <p className="mt-1 text-foreground" style={{ fontSize: "0.74rem", lineHeight: "1.5" }}>
+                        {latestAiMessage
+                          ? needsTrustNudge
+                            ? "Latest answer needs grounding before you rely on it."
+                            : `Latest answer is grounded with ${latestAiCitations.length} source reference${latestAiCitations.length === 1 ? "" : "s"}.`
+                          : "Trust indicators appear after the coach replies."}
+                      </p>
+                    </div>
+                    <span
+                      className="rounded-lg px-2 py-1 shrink-0"
+                      style={{
+                        fontSize: "0.62rem",
+                        backgroundColor: needsTrustNudge ? "rgba(239,68,68,0.12)" : "rgba(16,185,129,0.12)",
+                        color: needsTrustNudge ? "#ef4444" : "#10b981",
+                      }}
+                    >
+                      {needsTrustNudge ? "Needs grounding" : "Grounded"}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {topDueReview && (
+              <div className="mt-3 rounded-[1.4rem] border border-white/10 bg-white/6 p-3 backdrop-blur-sm">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-muted-foreground" style={{ fontSize: "0.64rem", letterSpacing: "0.12em", textTransform: "uppercase" }}>
+                      Due queue
+                    </p>
+                    <p className="mt-1 text-foreground" style={{ fontSize: "0.82rem" }}>
+                      Due today: <span style={{ color: module.color }}>{topDueReview.subtopicName}</span>
+                    </p>
+                    <p className="text-muted-foreground" style={{ fontSize: "0.7rem", lineHeight: "1.45" }}>
+                      {topDueReview.reason}. Log the outcome so mastery updates from evidence, not chat volume.
+                    </p>
+                  </div>
+                  <div className="flex gap-2 shrink-0">
+                    <button onClick={(e) => { e.stopPropagation(); submitReviewOutcome("mastered"); }} className="px-2.5 py-1.5 rounded-lg text-white cursor-pointer" style={{ fontSize: "0.68rem", backgroundColor: "#10b981" }}>Mastered</button>
+                    <button onClick={(e) => { e.stopPropagation(); submitReviewOutcome("struggled"); }} className="px-2.5 py-1.5 rounded-lg text-white cursor-pointer" style={{ fontSize: "0.68rem", backgroundColor: "#f59e0b" }}>Struggled</button>
+                    <button onClick={(e) => { e.stopPropagation(); submitReviewOutcome("missed"); }} className="px-2.5 py-1.5 rounded-lg text-white cursor-pointer" style={{ fontSize: "0.68rem", backgroundColor: "#ef4444" }}>Missed</button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </motion.div>
         )}
       </div>
 
@@ -722,7 +835,7 @@ export function ChatPanel({ module, startRecoveryQuiz = false }: ChatPanelProps)
               <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={message.role === "ai" ? { background: "linear-gradient(135deg, #FF7541, #B352D7)" } : { background: `linear-gradient(135deg, ${module.color}, ${module.color}cc)` }}>
                 {message.role === "ai" ? <Bot className="w-4 h-4 text-white" /> : <User className="w-4 h-4 text-white" />}
               </div>
-              <div className={`max-w-[82%] ${message.role === "student" ? "text-right" : ""}`}>
+              <div className={`max-w-[92%] ${message.role === "student" ? "text-right" : ""}`}>
                 <div className={`rounded-[1.35rem] px-4 py-3 ${message.role === "ai" ? "bg-[var(--card)] text-foreground border border-[var(--border)] shadow-[0_16px_40px_rgba(0,0,0,0.06)]" : "text-white shadow-[0_16px_40px_rgba(0,0,0,0.12)]"}`} style={message.role === "student" ? { background: `linear-gradient(135deg, ${module.color}, ${module.color}cc)` } : {}}>
                   {message.role === "ai" ? (
                     <Suspense fallback={<p style={{ fontSize: "0.875rem", lineHeight: "1.6", textAlign: "left" }}>{message.content}</p>}>
@@ -732,6 +845,32 @@ export function ChatPanel({ module, startRecoveryQuiz = false }: ChatPanelProps)
                     <p style={{ fontSize: "0.875rem", lineHeight: "1.6", textAlign: "left" }}>{message.content}</p>
                   )}
                 </div>
+
+                {/* MCQ clickable option buttons */}
+                {message.role === "ai" && (() => {
+                  const parsed = parseMcqOptions(message.content);
+                  if (!parsed || answeredMcqs.has(message.id)) return null;
+                  return (
+                    <div className="mt-2 flex flex-col gap-1.5">
+                      {parsed.options.map((opt) => (
+                        <button
+                          key={opt.letter}
+                          type="button"
+                          onClick={() => {
+                            setAnsweredMcqs((prev) => new Set(prev).add(message.id));
+                            void handleSend({ forcedMessage: `My answer: ${opt.letter}) ${opt.text}` });
+                          }}
+                          className="text-left px-3.5 py-2.5 rounded-xl border border-[var(--border)] bg-[var(--card)] hover:border-primary/50 hover:bg-primary/5 transition-all cursor-pointer group"
+                        >
+                          <span className="inline-flex items-center gap-2">
+                            <span className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-semibold shrink-0" style={{ background: "linear-gradient(135deg, #FF7541, #B352D7)", color: "#fff" }}>{opt.letter}</span>
+                            <span className="text-foreground group-hover:text-primary transition-colors" style={{ fontSize: "0.82rem" }}>{opt.text}</span>
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  );
+                })()}
 
                 {message.meta && message.role === "ai" && (
                   <div className="mt-2 space-y-1.5">
@@ -816,6 +955,9 @@ export function ChatPanel({ module, startRecoveryQuiz = false }: ChatPanelProps)
             ))}
           </div>
           <div className="mt-2 flex flex-wrap justify-end gap-2">
+            <button type="button" onClick={() => void handleGenerateSubtopicsFromUploads()} disabled={pendingAttachments.length === 0 || isTyping} className="px-3 py-1.5 rounded-lg border border-white/14 bg-white/6 text-foreground disabled:opacity-40 transition-all cursor-pointer" style={{ fontSize: "0.7rem" }}>
+              Generate subtopics
+            </button>
             <button type="button" onClick={() => void handleSend({ uploadMode: "quiz" })} disabled={pendingAttachments.length === 0 || isTyping} className="px-3 py-1.5 rounded-lg text-white disabled:opacity-40 transition-all cursor-pointer" style={{ fontSize: "0.7rem", background: "linear-gradient(135deg, #FF7541, #B352D7)" }}>
               Quiz me from uploads
             </button>
@@ -846,6 +988,23 @@ export function ChatPanel({ module, startRecoveryQuiz = false }: ChatPanelProps)
               {mode.label}
             </button>
           ))}
+
+          <div className="w-px h-5 bg-[var(--border)] mx-1" />
+
+          <button
+            type="button"
+            onClick={() =>
+              void handleSend({
+                forcedMessage: `Give me a multiple choice question about ${module.name} based on what we've discussed so far. Format it as:\n\nQuestion text\n\nA) option\nB) option\nC) option\nD) option\n\nDo NOT reveal the correct answer yet. Wait for my selection.`,
+              })
+            }
+            disabled={isTyping}
+            className="px-3 py-1.5 rounded-lg bg-[var(--accent)] text-muted-foreground hover:text-foreground transition-all cursor-pointer disabled:opacity-40 flex items-center gap-1.5"
+            style={{ fontSize: "0.7rem" }}
+          >
+            <ListChecks className="w-3.5 h-3.5" />
+            Quiz me
+          </button>
         </div>
 
         <div className="flex items-end gap-2 rounded-[1.35rem] border border-white/10 bg-white/6 p-2 backdrop-blur-sm">
@@ -905,7 +1064,7 @@ export function ChatPanel({ module, startRecoveryQuiz = false }: ChatPanelProps)
             placeholder="Ask a question, or paste long notes/screenshots directly here..."
             rows={1}
             className="flex-1 resize-none rounded-[1.2rem] bg-[var(--input-background)] px-4 py-3 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
-            style={{ fontSize: "0.875rem", minHeight: "44px", maxHeight: "120px" }}
+            style={{ fontSize: "0.875rem", minHeight: "48px", maxHeight: "180px" }}
           />
           <button onClick={() => void handleSend()} disabled={(!input.trim() && pendingAttachments.length === 0) || isTyping} className="w-10 h-10 rounded-xl flex items-center justify-center text-white disabled:opacity-30 transition-all shrink-0 cursor-pointer" style={{ background: "linear-gradient(135deg, #d96a42, #8c58c7)" }}>
             {pendingAttachments.length > 0 ? <CheckCircle2 className="w-4 h-4" /> : <Send className="w-4 h-4" />}

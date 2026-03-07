@@ -100,162 +100,303 @@ export interface StudentData {
   modules: Module[];
 }
 
-const now = new Date();
-const daysAgo = (days: number) => new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
-
 export const defaultModules: Module[] = [];
 
-export function createMockModuleWithHistory(): Module {
+export function createDemoModule(): Module {
   const createdAt = new Date();
+  const daysAgoDate = (d: number) => new Date(createdAt.getTime() - d * 24 * 60 * 60 * 1000);
 
   return {
-    id: "mock-module-chat-history",
-    name: "Mock: Signals & Systems",
-    icon: "📡",
+    id: "demo-module",
+    name: "Demo: AI & Machine Learning",
+    icon: "🧠",
     color: "#B352D7",
     bgColor: "rgba(179,82,215,0.15)",
     borderColor: "rgba(179,82,215,0.3)",
-    tags: ["Mock", "Verification"],
-    subtitle: "Use this module to verify chat + mastery persistence",
-    lastStudied: createdAt,
-    overallMastery: 62,
-    status: "on-track",
-    statusLabel: "Steady progress",
-    todaysFocus: "Practice convolution and step-response interpretation",
-    topicImportance: 7,
-    estimatedTimeToMastery: 160,
+    tags: ["Demo"],
+    subtitle: "Comprehensive demo module — use this to test every Gradify feature",
+    lastStudied: daysAgoDate(1),
+    overallMastery: 52,
+    status: "needs-review",
+    statusLabel: "Needs review",
+    todaysFocus: "Review Neural Networks and practice Gradient Descent calculations",
+    topicImportance: 8,
+    estimatedTimeToMastery: 200,
     learningSummary: [
-      "Understands basic signal classifications.",
-      "Can compute simple convolutions with guidance.",
-      "Still mixing up causal vs non-causal systems in edge cases.",
+      "Solid understanding of supervised vs unsupervised learning.",
+      "Struggles with backpropagation chain-rule steps.",
+      "Needs more practice on loss function selection and interpretation.",
     ],
     subtopics: [
       {
-        id: "mock-subtopic-1",
-        name: "Signal Properties",
-        mastery: 72,
-        mistakeCount: 2,
-        attempts: 4,
+        id: "demo-sub-1",
+        name: "Neural Network Architecture",
+        mastery: 74,
+        mistakeCount: 3,
+        attempts: 6,
         completed: true,
         forgettingRisk: "low",
-        reviewIntervalDays: 3,
-        lastReviewedAt: new Date(createdAt.getTime() - 1000 * 60 * 60 * 24).toISOString(),
-        reviewDueAt: new Date(createdAt.getTime() + 1000 * 60 * 60 * 24).toISOString(),
-        reviewHistory: [],
-        masteryHistory: [],
-        sourceReferences: [{ sourceName: "Signals and Systems Notes.pdf" }],
+        reviewIntervalDays: 4,
+        lastReviewedAt: daysAgoDate(1).toISOString(),
+        reviewDueAt: new Date(createdAt.getTime() + 3 * 24 * 60 * 60 * 1000).toISOString(),
+        reviewHistory: [
+          { id: crypto.randomUUID(), subtopicId: "demo-sub-1", subtopicName: "Neural Network Architecture", outcome: "pass", createdAt: daysAgoDate(4).toISOString(), source: "quiz" },
+          { id: crypto.randomUUID(), subtopicId: "demo-sub-1", subtopicName: "Neural Network Architecture", outcome: "pass", createdAt: daysAgoDate(1).toISOString(), source: "review" },
+        ],
+        masteryHistory: [
+          { recordedAt: daysAgoDate(6).toISOString(), score: 45, reason: "Initial assessment" },
+          { recordedAt: daysAgoDate(3).toISOString(), score: 62, reason: "Quiz improvement" },
+          { recordedAt: daysAgoDate(1).toISOString(), score: 74, reason: "Consistent correct answers" },
+        ],
+        sourceReferences: [{ sourceName: "ML Fundamentals Lecture.pdf" }],
       },
       {
-        id: "mock-subtopic-2",
-        name: "Convolution",
-        mastery: 58,
-        mistakeCount: 6,
-        attempts: 5,
+        id: "demo-sub-2",
+        name: "Gradient Descent & Optimization",
+        mastery: 38,
+        mistakeCount: 9,
+        attempts: 7,
         completed: false,
-        forgettingRisk: "medium",
+        forgettingRisk: "high",
         reviewIntervalDays: 1,
-        lastReviewedAt: new Date(createdAt.getTime() - 1000 * 60 * 60 * 24 * 2).toISOString(),
-        reviewDueAt: new Date(createdAt.getTime() - 1000 * 60 * 60 * 8).toISOString(),
-        reviewHistory: [],
-        masteryHistory: [],
-        sourceReferences: [{ sourceName: "Signals and Systems Notes.pdf" }],
+        lastReviewedAt: daysAgoDate(3).toISOString(),
+        reviewDueAt: daysAgoDate(1).toISOString(),
+        reviewHistory: [
+          { id: crypto.randomUUID(), subtopicId: "demo-sub-2", subtopicName: "Gradient Descent & Optimization", outcome: "fail", createdAt: daysAgoDate(5).toISOString(), source: "quiz" },
+          { id: crypto.randomUUID(), subtopicId: "demo-sub-2", subtopicName: "Gradient Descent & Optimization", outcome: "fail", createdAt: daysAgoDate(3).toISOString(), source: "review" },
+        ],
+        masteryHistory: [
+          { recordedAt: daysAgoDate(7).toISOString(), score: 30, reason: "Initial assessment" },
+          { recordedAt: daysAgoDate(3).toISOString(), score: 38, reason: "Slight improvement, still struggling" },
+        ],
+        sourceReferences: [{ sourceName: "Optimization Methods Tutorial.pdf" }],
       },
       {
-        id: "mock-subtopic-3",
-        name: "LTI System Response",
-        mastery: 54,
+        id: "demo-sub-3",
+        name: "Loss Functions",
+        mastery: 55,
         mistakeCount: 5,
-        attempts: 3,
+        attempts: 4,
         completed: false,
         forgettingRisk: "medium",
         reviewIntervalDays: 2,
-        lastReviewedAt: new Date(createdAt.getTime() - 1000 * 60 * 60 * 24 * 3).toISOString(),
-        reviewDueAt: new Date(createdAt.getTime() - 1000 * 60 * 60 * 24).toISOString(),
-        reviewHistory: [],
-        masteryHistory: [],
-        sourceReferences: [{ sourceName: "Signals and Systems Tutorial.pdf" }],
+        lastReviewedAt: daysAgoDate(2).toISOString(),
+        reviewDueAt: createdAt.toISOString(),
+        reviewHistory: [
+          { id: crypto.randomUUID(), subtopicId: "demo-sub-3", subtopicName: "Loss Functions", outcome: "pass", createdAt: daysAgoDate(4).toISOString(), source: "quiz" },
+          { id: crypto.randomUUID(), subtopicId: "demo-sub-3", subtopicName: "Loss Functions", outcome: "fail", createdAt: daysAgoDate(2).toISOString(), source: "review" },
+        ],
+        masteryHistory: [
+          { recordedAt: daysAgoDate(5).toISOString(), score: 40, reason: "Initial assessment" },
+          { recordedAt: daysAgoDate(2).toISOString(), score: 55, reason: "Good on MSE, weak on cross-entropy" },
+        ],
+        sourceReferences: [{ sourceName: "ML Fundamentals Lecture.pdf" }],
+      },
+      {
+        id: "demo-sub-4",
+        name: "Backpropagation",
+        mastery: 42,
+        mistakeCount: 8,
+        attempts: 5,
+        completed: false,
+        forgettingRisk: "high",
+        reviewIntervalDays: 1,
+        lastReviewedAt: daysAgoDate(4).toISOString(),
+        reviewDueAt: daysAgoDate(2).toISOString(),
+        reviewHistory: [
+          { id: crypto.randomUUID(), subtopicId: "demo-sub-4", subtopicName: "Backpropagation", outcome: "fail", createdAt: daysAgoDate(4).toISOString(), source: "quiz" },
+        ],
+        masteryHistory: [
+          { recordedAt: daysAgoDate(6).toISOString(), score: 35, reason: "Initial assessment" },
+          { recordedAt: daysAgoDate(4).toISOString(), score: 42, reason: "Improving on chain rule but still weak" },
+        ],
+        sourceReferences: [{ sourceName: "Optimization Methods Tutorial.pdf" }],
       },
     ],
     errorBreakdown: [
-      { type: "Calculation", count: 5, color: "#FF7541" },
-      { type: "Concept", count: 3, color: "#B352D7" },
-      { type: "Notation", count: 2, color: "#6129CC" },
+      { type: "Calculation", count: 8, color: "#FF7541" },
+      { type: "Concept", count: 6, color: "#B352D7" },
+      { type: "Notation", count: 4, color: "#6129CC" },
     ],
     chatHistory: [
       {
-        id: "mock-chat-1",
+        id: "demo-chat-1",
         role: "ai",
-        content: "Welcome back! Last time you were working on convolution. Want a quick recap or a challenge question?",
-        timestamp: new Date(createdAt.getTime() - 1000 * 60 * 35),
+        content:
+          "Welcome to your AI & Machine Learning module! I've set up subtopics based on your study plan. You have 4 areas to cover:\n\n" +
+          "1. **Neural Network Architecture** — layers, activations, forward pass\n" +
+          "2. **Gradient Descent & Optimization** — SGD, learning rate, convergence\n" +
+          "3. **Loss Functions** — MSE, cross-entropy, when to use each\n" +
+          "4. **Backpropagation** — chain rule, weight updates\n\n" +
+          "What would you like to start with?",
+        timestamp: daysAgoDate(6),
       },
       {
-        id: "mock-chat-2",
+        id: "demo-chat-2",
         role: "student",
-        content: "Quick recap first — I still confuse the overlap boundaries.",
-        timestamp: new Date(createdAt.getTime() - 1000 * 60 * 33),
+        content: "Let's start with neural network architecture.",
+        timestamp: daysAgoDate(6),
       },
       {
-        id: "mock-chat-3",
+        id: "demo-chat-3",
         role: "ai",
-        content: "Great call. Think in three steps: flip, shift, multiply-integrate. For overlap limits, ask: where are both signals non-zero at the same time?",
-        timestamp: new Date(createdAt.getTime() - 1000 * 60 * 31),
+        content:
+          "A neural network is made of layers of neurons. Each neuron computes:\n\n" +
+          "$z = \\mathbf{w} \\cdot \\mathbf{x} + b$\n\n" +
+          "then applies an activation function $a = \\sigma(z)$.\n\n" +
+          "Common activations include ReLU: $f(x) = \\max(0, x)$ and sigmoid: $\\sigma(x) = \\frac{1}{1 + e^{-x}}$.\n\n" +
+          "**Quick check:** If a hidden layer has 4 neurons and the input has 3 features, how many weights does that layer have (not counting biases)?",
+        timestamp: daysAgoDate(6),
+        meta: { confidence: "high", confidenceReason: "Foundational concept with well-established definitions", citations: [{ sourceName: "ML Fundamentals Lecture.pdf" }] },
       },
       {
-        id: "mock-chat-4",
+        id: "demo-chat-4",
         role: "student",
-        content: "Got it. Give me one more practice prompt.",
-        timestamp: new Date(createdAt.getTime() - 1000 * 60 * 29),
+        content: "12 weights because each of 4 neurons is connected to all 3 inputs.",
+        timestamp: daysAgoDate(5),
       },
       {
-        id: "mock-chat-5",
+        id: "demo-chat-5",
         role: "ai",
-        content: "Try this: x(t)=u(t)-u(t-2), h(t)=u(t). Compute y(t)=x*h and describe each interval clearly.",
-        timestamp: new Date(createdAt.getTime() - 1000 * 60 * 27),
+        content:
+          "Exactly right! $4 \\times 3 = 12$ weights.\n\n" +
+          "Now let's look at gradient descent. The idea: we want to minimize a loss function $L(\\theta)$ by updating parameters:\n\n" +
+          "$\\theta_{t+1} = \\theta_t - \\eta \\nabla L(\\theta_t)$\n\n" +
+          "where $\\eta$ is the learning rate.\n\n" +
+          "**Try this:** If $L(w) = (w - 3)^2$, current $w = 7$, and $\\eta = 0.1$, what is $w$ after one gradient step?",
+        timestamp: daysAgoDate(5),
+        meta: { confidence: "high", citations: [{ sourceName: "Optimization Methods Tutorial.pdf" }] },
       },
     ],
     diagnostic: {
-      goal: "Be exam-ready for the upcoming Signals and Systems assessment",
-      weeklyStudyMinutes: 180,
-      baselineConfidence: 58,
-      knownWeakAreas: ["Convolution", "LTI system response"],
-      createdAt: createdAt.toISOString(),
-      recommendedFocus: ["Convolution", "LTI system response"],
-      deadline: new Date(createdAt.getTime() + 1000 * 60 * 60 * 24 * 12).toISOString(),
+      goal: "Master core ML concepts for the upcoming assessment",
+      weeklyStudyMinutes: 150,
+      baselineConfidence: 45,
+      knownWeakAreas: ["Gradient Descent & Optimization", "Backpropagation"],
+      createdAt: daysAgoDate(7).toISOString(),
+      recommendedFocus: ["Gradient Descent & Optimization", "Backpropagation", "Loss Functions"],
+      deadline: new Date(createdAt.getTime() + 14 * 24 * 60 * 60 * 1000).toISOString(),
     },
     masteryBreakdown: {
-      overall: 62,
-      retrieval: 60,
-      recency: 68,
-      completion: 56,
-      consistency: 63,
+      overall: 52,
+      retrieval: 48,
+      recency: 55,
+      completion: 45,
+      consistency: 58,
       explanation: [
-        "Recent evidence is solid, but repeated convolution mistakes are still holding the score back.",
+        "Gradient descent and backpropagation are significantly weaker than architecture knowledge.",
+        "Multiple calculation errors on chain-rule steps are dragging the overall score down.",
       ],
     },
     mistakeHistory: [
       {
-        id: "mock-mistake-1",
-        subtopicId: "mock-subtopic-2",
-        subtopicName: "Convolution",
-        createdAt: new Date(createdAt.getTime() - 1000 * 60 * 60 * 24).toISOString(),
+        id: "demo-mistake-1",
+        subtopicId: "demo-sub-2",
+        subtopicName: "Gradient Descent & Optimization",
+        createdAt: daysAgoDate(3).toISOString(),
         severity: "high",
-        trigger: "Mixed up overlap boundaries in a recall question",
-        nextStep: "Redo one graph-based convolution question before moving on.",
+        trigger: "Forgot to negate the gradient in the update rule",
+        nextStep: "Redo the parameter-update formula from scratch and verify with a 1D example.",
+      },
+      {
+        id: "demo-mistake-2",
+        subtopicId: "demo-sub-4",
+        subtopicName: "Backpropagation",
+        createdAt: daysAgoDate(4).toISOString(),
+        severity: "high",
+        trigger: "Applied chain rule in wrong order across layers",
+        nextStep: "Walk through a 2-layer network backprop by hand, writing each partial derivative explicitly.",
+      },
+      {
+        id: "demo-mistake-3",
+        subtopicId: "demo-sub-3",
+        subtopicName: "Loss Functions",
+        createdAt: daysAgoDate(2).toISOString(),
+        severity: "medium",
+        trigger: "Confused MSE and cross-entropy use cases",
+        nextStep: "List when to use MSE vs cross-entropy with one example each.",
       },
     ],
     nextActions: [
-      "Clear the overdue Convolution review first.",
-      "Do one timed LTI response question after the review.",
+      "Clear the overdue Gradient Descent review — it's 2 days late.",
+      "Do one Backpropagation chain-rule walkthrough.",
+      "Practice Loss Functions with a short quiz.",
     ],
     weeklyPlan: [],
-    dueToday: [],
+    dueToday: [
+      { subtopicId: "demo-sub-2", subtopicName: "Gradient Descent & Optimization", urgency: 0.9, daysPastDue: 2 },
+      { subtopicId: "demo-sub-4", subtopicName: "Backpropagation", urgency: 0.8, daysPastDue: 2 },
+      { subtopicId: "demo-sub-3", subtopicName: "Loss Functions", urgency: 0.5, daysPastDue: 0 },
+    ],
     accountability: {
-      streakDays: 2,
-      completedReviewDates: [new Date(createdAt.getTime() - 1000 * 60 * 60 * 24).toISOString()],
+      streakDays: 3,
+      completedReviewDates: [
+        daysAgoDate(3).toISOString(),
+        daysAgoDate(2).toISOString(),
+        daysAgoDate(1).toISOString(),
+      ],
     },
-    lastCheckInAt: createdAt.toISOString(),
+    lastCheckInAt: daysAgoDate(1).toISOString(),
   };
 }
+
+/*
+ * ─── DEMO MODULE TEST INSTRUCTIONS ───────────────────────────────────
+ *
+ * Use the "Demo: AI & Machine Learning" module to test every feature:
+ *
+ * 1. CHAT & TUTOR
+ *    - Open the module → type a question → verify AI responds with citations
+ *    - Click "Quiz me" → verify MCQ options appear as clickable buttons
+ *    - Select an MCQ option → verify your selection is sent as a message
+ *
+ * 2. SESSION MODES
+ *    - Switch to Coach / Roleplay / Interview → send a message → verify tone changes
+ *
+ * 3. FILE UPLOAD & SUBTOPIC EXTRACTION
+ *    - Click the paperclip → upload a PDF or image → choose a category
+ *    - Click "Generate subtopics" → verify new subtopics appear in metrics
+ *    - Click "Quiz me from uploads" → verify quiz is based on uploaded content
+ *    - Click "Teach me from uploads" → verify explanatory response
+ *    - Click "Help me revise" → verify revision summary
+ *
+ * 4. CLIPBOARD PASTE
+ *    - Copy an image or text → click the clipboard button or paste into textarea
+ *    - Verify attachment appears in the pending bar
+ *
+ * 5. STUDY PLAN GENERATION
+ *    - In the Metrics panel → click "Generate study plan" → enter minutes (e.g. 90)
+ *    - Verify a dynamic plan is generated using the module's subtopics
+ *    - Verify items have correct Focus/Strengthen/Quiz/Recap labels
+ *
+ * 6. MASTERY & METRICS
+ *    - Check the mastery breakdown panel → verify Retrieval, Consistency, Recency, Completion
+ *    - Check "Today's Focus" shows due reviews (Gradient Descent, Backpropagation)
+ *    - Check mistake history shows 3 recorded mistakes
+ *    - Check the next actions list
+ *
+ * 7. WEEKLY PLAN BLOCKS
+ *    - Generate a study plan → verify blocks appear in the weekly plan section
+ *    - Mark blocks as complete → verify state persists
+ *
+ * 8. RECOVERY QUIZ (INACTIVITY)
+ *    - To test: temporarily set lastStudied to >5 days ago in the module data
+ *    - Verify the recovery quiz prompt fires automatically on module open
+ *
+ * 9. DASHBOARD
+ *    - Navigate to Dashboard → verify the demo module card appears
+ *    - Check due-queue preview, learning model panel, intervention board
+ *    - Check analytics tab with streak, mastery history
+ *
+ * 10. PERSONA EDITOR
+ *     - Click the settings gear in chat → change explanation style / pace / tone
+ *     - Send a message → verify the tutor adapts
+ *
+ * 11. DELETE MODULE
+ *     - Delete the demo module → verify it reappears on refresh (demo modules auto-restore)
+ *
+ * ─────────────────────────────────────────────────────────────────────
+ */
 
 export function getDaysInactive(lastStudied: Date): number {
   const now = new Date();
@@ -369,110 +510,3 @@ export function generateAIResponse(module: Module, userMessage: string): string 
   return responses[Math.floor(Math.random() * responses.length)];
 }
 
-export function createInactiveReminderModule(): Module {
-  const lastStudied = daysAgo(5);
-
-  return {
-    id: "mock-module-inactive-5-days",
-    name: "Mock: Control Systems Review",
-    icon: "🛰️",
-    color: "#FF7541",
-    bgColor: "rgba(255,117,65,0.15)",
-    borderColor: "rgba(255,117,65,0.3)",
-    tags: ["Mock", "Inactivity Reminder"],
-    subtitle: "Tracked as not studied for 5 days",
-    lastStudied,
-    overallMastery: 43,
-    status: "inactive",
-    statusLabel: "5 days inactive",
-    todaysFocus: "Quick control-systems quiz to reactivate recall",
-    topicImportance: 8,
-    estimatedTimeToMastery: 210,
-    learningSummary: [
-      "Can model first-order systems but needs more confidence with transient analysis.",
-      "Makes recurring mistakes around steady-state error interpretation.",
-      "Best recovery path is a short diagnostic quiz and targeted revision.",
-    ],
-    subtopics: [
-      {
-        id: "inactive-subtopic-1",
-        name: "Time Response",
-        mastery: 46,
-        mistakeCount: 7,
-        attempts: 5,
-        completed: false,
-        forgettingRisk: "high",
-        reviewIntervalDays: 1,
-        lastReviewedAt: new Date(lastStudied.getTime() - 1000 * 60 * 60 * 24).toISOString(),
-        reviewDueAt: lastStudied.toISOString(),
-        reviewHistory: [],
-        masteryHistory: [],
-        sourceReferences: [{ sourceName: "Control Systems Notes.pdf" }],
-      },
-      {
-        id: "inactive-subtopic-2",
-        name: "Stability Criteria",
-        mastery: 41,
-        mistakeCount: 6,
-        attempts: 4,
-        completed: false,
-        forgettingRisk: "high",
-        reviewIntervalDays: 1,
-        lastReviewedAt: new Date(lastStudied.getTime() - 1000 * 60 * 60 * 48).toISOString(),
-        reviewDueAt: lastStudied.toISOString(),
-        reviewHistory: [],
-        masteryHistory: [],
-        sourceReferences: [{ sourceName: "Control Systems Revision.pdf" }],
-      },
-    ],
-    errorBreakdown: [
-      { type: "Concept", count: 5, color: "#FF7541" },
-      { type: "Calculation", count: 4, color: "#B352D7" },
-      { type: "Notation", count: 2, color: "#6129CC" },
-    ],
-    chatHistory: [
-      {
-        id: "inactive-chat-1",
-        role: "ai",
-        content: "You have not studied this module for 5 days. Want to do a quick recovery quiz now?",
-        timestamp: new Date(lastStudied.getTime() + 1000 * 60 * 3),
-      },
-    ],
-    diagnostic: {
-      goal: "Recover enough confidence to restart control systems revision",
-      weeklyStudyMinutes: 120,
-      baselineConfidence: 40,
-      knownWeakAreas: ["Time Response", "Stability Criteria"],
-      createdAt: lastStudied.toISOString(),
-      recommendedFocus: ["Time Response", "Stability Criteria"],
-    },
-    masteryBreakdown: {
-      overall: 43,
-      retrieval: 38,
-      recency: 20,
-      completion: 35,
-      consistency: 49,
-      explanation: ["Evidence is stale and both subtopics are overdue for review."],
-    },
-    mistakeHistory: [
-      {
-        id: "inactive-mistake-1",
-        subtopicId: "inactive-subtopic-1",
-        subtopicName: "Time Response",
-        createdAt: lastStudied.toISOString(),
-        severity: "high",
-        trigger: "Forgot how to interpret transient response graphs after inactivity",
-        nextStep: "Take a recovery quiz before doing new examples.",
-      },
-    ],
-    nextActions: ["Take the recovery quiz.", "Revisit the weakest control-systems graph question."],
-    weeklyPlan: [],
-    dueToday: [],
-    accountability: {
-      streakDays: 0,
-      completedReviewDates: [],
-      lastNudgeAt: lastStudied.toISOString(),
-    },
-    lastCheckInAt: lastStudied.toISOString(),
-  };
-}

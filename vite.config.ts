@@ -3,6 +3,8 @@ import path from 'path'
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import { decideNextAction, parseLearningStateFromQuery } from './src/app/data/next-action'
+import { MCP_TOOLS, handleToolCall } from './src/mcp/document-context'
+import type { McpToolCallRequest } from './src/mcp/document-context'
 
 type ChatHistoryItem = {
   role: 'user' | 'assistant'
@@ -65,6 +67,45 @@ function getAdaptiveDifficulty(action: string): 'foundational' | 'standard' | 'c
   return 'standard'
 }
 
+function buildPracticeQuestion(subtopic: string, difficulty: 'foundational' | 'standard' | 'challenging') {
+  const lower = subtopic.toLowerCase()
+  const block = (latex: string) => `$$\n${latex}\n$$`
+
+  if (/eigenvalue|eigenvector/.test(lower)) {
+    return difficulty === 'challenging'
+      ? `Question: For the matrix\n${block(String.raw`A = \begin{bmatrix} 4 & 1 \\ 2 & 3 \end{bmatrix}`)}\nfind the eigenvalues and then determine one eigenvector for each eigenvalue.`
+      : `Question: For the matrix\n${block(String.raw`A = \begin{bmatrix} 2 & 1 \\ 1 & 2 \end{bmatrix}`)}\nfind the eigenvalues and one corresponding eigenvector.`
+  }
+
+  if (/row echelon|gaussian|elimination/.test(lower)) {
+    return difficulty === 'challenging'
+      ? `Question: Reduce the following matrix to row echelon form and identify each pivot position.\n${block(String.raw`\begin{bmatrix} 1 & 2 & -1 \\ 2 & 5 & 1 \\ 1 & 1 & 2 \end{bmatrix}`)}`
+      : `Question: Reduce the following matrix to row echelon form.\n${block(String.raw`\begin{bmatrix} 1 & 2 & 1 \\ 2 & 4 & 3 \\ 0 & 1 & 1 \end{bmatrix}`)}`
+  }
+
+  if (/determinant/.test(lower)) {
+    return difficulty === 'challenging'
+      ? `Question: Compute the determinant of the matrix\n${block(String.raw`\begin{bmatrix} 2 & -1 & 3 \\ 0 & 4 & 1 \\ 5 & 2 & -2 \end{bmatrix}`)}\nand state what the result tells you about invertibility.`
+      : `Question: Compute the determinant of the matrix\n${block(String.raw`\begin{bmatrix} 3 & 1 \\ 2 & 4 \end{bmatrix}`)}.`
+  }
+
+  if (/matrix/.test(lower)) {
+    return difficulty === 'challenging'
+      ? `Question: Let\n${block(String.raw`A = \begin{bmatrix} 1 & 2 \\ 3 & 4 \end{bmatrix}, \quad B = \begin{bmatrix} 2 & 0 \\ 1 & 5 \end{bmatrix}`)}\nCompute $AB$ and explain why matrix multiplication is not commutative here.`
+      : `Question: Let\n${block(String.raw`A = \begin{bmatrix} 1 & 2 \\ 0 & 3 \end{bmatrix}, \quad B = \begin{bmatrix} 4 & 1 \\ 2 & 5 \end{bmatrix}`)}\nCompute $A + B$ and $AB$.`
+  }
+
+  if (difficulty === 'challenging') {
+    return `Question: Solve one integrated problem on **${subtopic}** that combines the current idea with one earlier concept from this topic. Start by stating the method you will use.`
+  }
+
+  if (difficulty === 'foundational') {
+    return `Question: What is the first rule, definition, or step you should recall for **${subtopic}**, and how would you use it to solve a simple starter problem?`
+  }
+
+  return `Question: Solve this practice problem on **${subtopic}**. Start with the setup, carry out the key step, and then give the final answer.`
+}
+
 function generateAdaptiveQuestion(body: ChatRequestBody, nextAction: string): string {
   const subtopic = body.currentSubtopicName || body.topicName
   const questionStyle = body.personaProfile?.questionStyle || 'problem-solving'
@@ -102,26 +143,26 @@ function generateAdaptiveQuestion(body: ChatRequestBody, nextAction: string): st
   if (difficulty === 'challenging') {
     return [
       title,
-      `Solve an integrated challenge that combines **${subtopic}** with one earlier concept from this topic.`,
+      buildPracticeQuestion(subtopic, difficulty),
       '',
-      '_Show your setup first, then final result._',
+      '_Show your setup first, then final result. Stop after one question so the learner can answer._',
     ].join('\n')
   }
 
   if (difficulty === 'foundational') {
     return [
       title,
-      `Do one foundational exercise on **${subtopic}**: define the core idea, then solve one small example.` ,
+      buildPracticeQuestion(subtopic, difficulty),
       '',
-      '_If stuck, ask for a hint and I will scaffold it._',
+      '_Answer the question first. If stuck, ask for a hint and I will scaffold it._',
     ].join('\n')
   }
 
   return [
     title,
-    `Apply **${subtopic}** to a fresh example and explain each step briefly.`,
+    buildPracticeQuestion(subtopic, difficulty),
     '',
-    '_Keep your answer concise and structured._',
+    '_Answer this one question first, then I can check your working or give the next one._',
   ].join('\n')
 }
 
@@ -206,6 +247,46 @@ function applyHallucinationGuardrails(reply: string, uploadedFiles: NonNullable<
   }
 
   return guardedReply
+}
+
+function normalizeMatrixLatex(reply: string): string {
+  return reply.replace(
+    /(?:\$\$?|\\\[)?\s*((?:[A-Z]\s*=\s*)?\\begin\{(bmatrix|pmatrix|Bmatrix|vmatrix|Vmatrix|matrix)\}([\s\S]*?)\\end\{\2\})\s*(?:\$\$?|\\\])?/g,
+    (_match, matrixBlock: string, env: string, inner: string) => {
+      const cleanedInner = inner
+        .replace(/\r/g, '')
+        .replace(/(?<!\\)\\(?=\s*[-\d])/g, '\\\\')
+        .replace(/\s*\\\\\s*/g, ' \\\\ ')
+        .replace(/\s{2,}/g, ' ')
+        .trim()
+
+      const normalizedBlock = matrixBlock.replace(inner, ` ${cleanedInner} `).trim()
+      return `$$${normalizedBlock}$$`
+    },
+  )
+}
+
+function normalizePracticePromptLanguage(reply: string): string {
+  return reply
+    .replace(/To practice, try (converting|solving|reducing) the following ([^.]+?) form:/gi, 'Practice question: $1 the following $2 form:')
+    .replace(/Apply (.+?) to a fresh example and explain each step briefly\./gi, 'Practice question: Solve one explicit question on $1 and show your working clearly.')
+}
+
+function postProcessTutorReply(reply: string): string {
+  return normalizePracticePromptLanguage(normalizeMatrixLatex(reply))
+}
+
+function replyAlreadyContainsPracticeQuestion(reply: string): boolean {
+  const normalized = reply.toLowerCase()
+
+  if (/adaptive practice question|practice question:|^question:/im.test(normalized)) {
+    return true
+  }
+
+  const imperativeQuestion = /(find|compute|reduce|determine|solve)/.test(normalized)
+  const explicitTarget = /(for the matrix|given the matrix|once you've|share your result|show your working)/.test(normalized)
+
+  return imperativeQuestion && explicitTarget
 }
 
 function stripAdaptivePracticeSection(reply: string): string {
@@ -472,6 +553,7 @@ function chatApiPlugin(getApiKey: () => string | undefined, getModel: () => stri
             '- Never leave unmatched or stray dollar signs.',
             '- Do not put plain English sentences inside math delimiters; only symbols/equations belong in math mode.',
             '- For Fourier/convolution style equations, ensure every LaTeX expression is fully delimited and renderable by KaTeX.',
+            '- For matrices, always use display math like $$\\begin{bmatrix} ... \\end{bmatrix}$$ or $$\\begin{pmatrix} ... \\end{pmatrix}$$, never raw matrix LaTeX in plain text.',
             '- For complex expressions (cases, matrices, piecewise), after the rendered equation also provide a fallback fenced block labeled ```latex``` with the exact LaTeX.',
             'Hallucination guardrails:',
             '- Never invent formulas, definitions, citations, or facts.',
@@ -491,6 +573,7 @@ function chatApiPlugin(getApiKey: () => string | undefined, getModel: () => stri
             `Error pattern insights: ${(body.errorPatterns || []).map((p) => `${p.type}:${p.count}`).join(', ') || 'none'}`,
             'Follow the next action policy in your response style and choice of task.',
             'When the learner asks for practice or explanation, align with persona settings and avoid generic responses.',
+            'When you ask the learner to practise, give one explicit question first rather than telling them to apply the concept to a vague example.',
             ...(body.requestAdaptiveQuestion === false
               ? [
                   'Do not include any section titled "Adaptive Practice Question" in your reply.',
@@ -617,11 +700,15 @@ function chatApiPlugin(getApiKey: () => string | undefined, getModel: () => stri
 
           const groundedness = referenceSnippets ? computeGroundednessScore(rawReply, referenceSnippets) : null
           let guardedReply = applyHallucinationGuardrails(rawReply, uploadedFiles)
+          guardedReply = postProcessTutorReply(guardedReply)
           if (body.requestAdaptiveQuestion === false) {
             guardedReply = stripAdaptivePracticeSection(guardedReply)
           }
 
-          const adaptiveQuestion = body.requestAdaptiveQuestion === false ? undefined : generateAdaptiveQuestion(body, decision.action)
+          const adaptiveQuestionRaw = body.requestAdaptiveQuestion === false ? undefined : generateAdaptiveQuestion(body, decision.action)
+          const adaptiveQuestion = adaptiveQuestionRaw && !replyAlreadyContainsPracticeQuestion(guardedReply)
+            ? postProcessTutorReply(adaptiveQuestionRaw)
+            : undefined
           const citations = buildCitations(guardedReply, uploadedFiles)
           const { confidence, confidenceReason } = computeConfidenceLabel(groundedness, uploadedFiles)
 
@@ -665,6 +752,45 @@ function topicNextApiPlugin() {
   }
 }
 
+function mcpPlugin(getApiKey: () => string | undefined) {
+  return {
+    name: 'mcp-document-context',
+    configureServer(server: any) {
+      server.middlewares.use(async (req: any, res: any, next: any) => {
+        if (req.method === 'GET' && req.url === '/api/mcp/tools') {
+          res.statusCode = 200
+          res.setHeader('Content-Type', 'application/json')
+          res.end(JSON.stringify({ tools: MCP_TOOLS }))
+          return
+        }
+
+        if (req.method === 'POST' && req.url === '/api/mcp/call') {
+          try {
+            const body = (await parseJsonBody(req)) as McpToolCallRequest
+            if (!body || !body.tool) {
+              res.statusCode = 400
+              res.setHeader('Content-Type', 'application/json')
+              res.end(JSON.stringify({ error: 'Missing tool name in request.' }))
+              return
+            }
+            const result = await handleToolCall(body, getApiKey())
+            res.statusCode = 200
+            res.setHeader('Content-Type', 'application/json')
+            res.end(JSON.stringify(result))
+          } catch {
+            res.statusCode = 500
+            res.setHeader('Content-Type', 'application/json')
+            res.end(JSON.stringify({ error: 'MCP tool call failed.' }))
+          }
+          return
+        }
+
+        next()
+      })
+    },
+  }
+}
+
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
 
@@ -677,6 +803,7 @@ export default defineConfig(({ mode }) => {
       topicNextApiPlugin(),
       materialsAnalyzePlugin(() => env.OPENAI_API_KEY),
       chatApiPlugin(() => env.OPENAI_API_KEY, () => env.OPENAI_MODEL),
+      mcpPlugin(() => env.OPENAI_API_KEY),
     ],
     resolve: {
       alias: {
