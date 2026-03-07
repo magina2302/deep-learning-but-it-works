@@ -9,10 +9,19 @@ The current app focuses on evidence-based learning: uploaded material becomes su
 - Creates modules with goals, deadlines, weak areas, and a weekly study budget
 - Extracts subtopics from uploaded notes, PDFs, pasted text, and supported image inputs
 - Runs an AI tutor with citations and confidence labels when source material is available
+- Lets learners generate subtopics directly from uploaded material and turn them into a guided study path
+- Supports quick quiz interactions with clickable MCQ options and recovery-style check-ins after inactivity
 - Tracks due reviews and updates mastery from explicit outcomes like `mastered`, `struggled`, and `missed`
 - Generates weekly plans, next actions, and mistake review history
 - Supports voice input/output and multiple tutoring session styles
 - Uses Supabase authentication for login and signup
+
+## Why It Stands Out
+
+- Moves beyond chatbot-style tutoring by turning raw study material into structured learning actions
+- Connects ingestion, tutoring, quizzes, review scheduling, and mastery into one loop
+- Persists meaningful learning evidence so the product improves its guidance over time
+- Ships with an MCP-style document tooling layer for contextualizing uploaded material before tutoring
 
 ## Core Product Areas
 
@@ -26,6 +35,9 @@ The current app focuses on evidence-based learning: uploaded material becomes su
 
 - AI tutor chat with persisted history
 - Upload, paste, and clipboard-driven study material ingestion
+- Subtopic generation from uploaded study material
+- Multiple tutor modes including coach, interview, and roleplay
+- Quick quiz interactions with clickable MCQ choices
 - Review controls for scheduled subtopics
 - Confidence badges and source citations on AI responses
 
@@ -43,8 +55,19 @@ The current app focuses on evidence-based learning: uploaded material becomes su
 - Vite 6
 - React Router 7
 - Supabase
+- Model Context Protocol style document tooling
+- pdfjs-dist for PDF text extraction
 - Tailwind CSS
+- Framer Motion / Motion
 - Vitest
+
+## Architecture Snapshot
+
+- `Dashboard`: cross-module overview, urgency cues, mastery visuals, and coach notes
+- `Module workspace`: chat-first tutoring interface with uploads, review actions, and metrics side panel
+- `Supabase`: authentication plus persistent module evidence such as chat metadata, nudges, check-ins, plan completion, and review history
+- `Vite middleware`: local API endpoints for chat and material analysis during development
+- `MCP document layer`: document extraction, topic extraction, contextualization, and summarization helpers used during upload flows
 
 ## Project Structure
 
@@ -54,6 +77,7 @@ src/
 		components/      UI and page components
 		data/            learning logic, mock data, study planning, tests
 		routes.ts        router configuration
+	mcp/               document-context tools and client helpers
 	styles/            theme and global styles
 	supabase.ts        Supabase client setup
 supabase/
@@ -134,14 +158,16 @@ http://localhost:5173
 
 ## Important Implementation Notes
 
-- Rich learning state is currently persisted client-side, not fully normalized into Supabase tables
+- Learning persistence is hybrid: core evidence such as nudges, check-ins, plan completion, review history, and chat metadata are persisted, while some persona-style preferences still remain local
 - The tutor backend is implemented inside `vite.config.ts` as dev-server middleware
-- Image-based topic extraction depends on the OpenAI key being available
+- PDF and image material processing flows depend on the OpenAI key being available for the AI-backed steps
+- Uploaded material can be turned into subtopics and contextualized through the local MCP-style tool layer
 - Existing seeded/demo modules are included to show the product behavior without full setup
 
 ## Current Gaps
 
 - No real multi-user collaborative study sessions yet
+- Long-term knowledge graph and stronger evidence citation UX are still limited
 - New evidence logic needs broader automated test coverage
 - Supabase config should be moved out of `src/supabase.ts`
 - Production deployment docs are still missing
