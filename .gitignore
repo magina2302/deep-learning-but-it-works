@@ -4,6 +4,7 @@ node_modules/
 # Build outputs
 dist/
 coverage/
+.env
 
 # Environment and local secrets
 
